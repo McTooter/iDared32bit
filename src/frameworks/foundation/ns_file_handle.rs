@@ -73,6 +73,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<NSFileHandleHostObject>(this).fd
 }
 
+- (())synchronizeFile {
+    let fd = env.objc.borrow::<NSFileHandleHostObject>(this).fd;
+    if posix_io::fsync(env, fd) == -1 {
+        log!("Warning: synchronizeFile failed for fd {}", fd);
+    }
+}
+
 - (i64)offsetInFile {
     let fd = env.objc.borrow::<NSFileHandleHostObject>(this).fd;
     match posix_io::lseek(env, fd, 0, posix_io::SEEK_CUR) {

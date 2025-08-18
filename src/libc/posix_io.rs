@@ -854,7 +854,7 @@ fn flock(env: &mut Environment, fd: FileDescriptor, operation: FLockFlag) -> i32
     0
 }
 
-fn fsync(env: &mut Environment, fd: FileDescriptor) -> i32 {
+pub fn fsync(env: &mut Environment, fd: FileDescriptor) -> i32 {
     let Some(file) = env.libc_state.posix_io.file_for_fd(fd) else {
         log!(
             "Warning: fsync({:?}) called with unknown fd, returning -1",
