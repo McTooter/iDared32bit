@@ -12,7 +12,7 @@
 use super::UIViewHostObject;
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
-use crate::frameworks::core_graphics::{CGPoint, CGRect};
+use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect};
 use crate::frameworks::foundation::ns_string;
 use crate::frameworks::uikit::ui_application::{
     UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight,
@@ -33,6 +33,9 @@ pub struct State {
     /// The most recent window which received `makeKeyAndVisible` message.
     /// Non-retaining!
     pub key_window: Option<id>,
+    /// Window levels per window (UIWindowLevel).
+    /// Non-retaining!
+    pub window_levels: Vec<(id, CGFloat)>,
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -50,12 +53,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     // a notification.
     () = msg_super![env; this setHidden:true];
 
-    let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
-    list.push(this);
+    let state = &mut env.framework_state.uikit.ui_view.ui_window;
+    state.windows.push(this);
+    // Default to normal window level (0.0 on iOS)
+    state.window_levels.push((this, 0.0));
+
     log_dbg!(
         "New window: {:?}. New list of all windows: {:?}",
         this,
-        list,
+        state.windows,
     );
 
     this
@@ -69,26 +75,35 @@ pub const CLASSES: ClassExports = objc_classes! {
     // a notification.
     () = msg_super![env; this setHidden:true];
 
-    let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
-    list.push(this);
+    let state = &mut env.framework_state.uikit.ui_view.ui_window;
+    state.windows.push(this);
+    state.window_levels.push((this, 0.0));
+
     log_dbg!(
         "New window: {:?}. New list of all windows: {:?}",
         this,
-        list,
+        state.windows,
     );
 
     this
 }
 
 - (())dealloc {
-    if let Some(key_window) = env.framework_state.uikit.ui_view.ui_window.key_window {
+    let state = &mut env.framework_state.uikit.ui_view.ui_window;
+
+    if let Some(key_window) = state.key_window {
         if key_window == this {
-            env.framework_state.uikit.ui_view.ui_window.key_window = None;
+            state.key_window = None;
         }
     }
-    let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
+
+    let list = &mut state.windows;
     let idx = list.iter().position(|&w| w == this).unwrap();
     list.remove(idx);
+
+    // Remove window level entry for this window
+    state.window_levels.retain(|(w, _)| *w != this);
+
     log_dbg!(
         "Deallocating window {:?}. New list of all windows: {:?}",
         this,
@@ -241,6 +256,30 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this_layer convertPoint:point toLayer:other_layer]
 }
 
+- (CGFloat)windowLevel {
+    let state = &env.framework_state.uikit.ui_view.ui_window;
+    if let Some((_, level)) = state.window_levels.iter().rev().find(|(w, _)| *w == this) {
+        *level
+    } else {
+        // Default: normal level
+        0.0
+    }
+}
+
+- (())setWindowLevel:(CGFloat)level {
+    let state = &mut env.framework_state.uikit.ui_view.ui_window;
+
+    if let Some((_, stored_level)) = state.window_levels.iter_mut().find(|(w, _)| *w == this) {
+        *stored_level = level;
+    } else {
+        state.window_levels.push((this, level));
+    }
+
+    log_dbg!("[(UIWindow*){:?} setWindowLevel:{}]", this, level);
+
+    // TODO: re-order windows based on windowLevel for proper z-ordering.
+}
+
 @end
 
 };
@@ -280,5 +319,17 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_UIKeyboardBoundsUserInfoKey",
         HostConstant::NSString(UIKeyboardBoundsUserInfoKey),
+    ),
+    (
+        "_UIWindowLevelNormal",
+        HostConstant::Custom(|env| env.mem.alloc_and_write(0.0f32).cast().cast_const()),
+    ),
+    (
+        "_UIWindowLevelStatusBar",
+        HostConstant::Custom(|env| env.mem.alloc_and_write(1000.0f32).cast().cast_const()),
+    ),
+    (
+        "_UIWindowLevelAlert",
+        HostConstant::Custom(|env| env.mem.alloc_and_write(2000.0f32).cast().cast_const()),
     ),
 ];
