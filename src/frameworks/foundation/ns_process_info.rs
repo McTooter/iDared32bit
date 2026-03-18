@@ -5,7 +5,7 @@
  */
 //! `NSProcessInfo`.
 
-use super::NSTimeInterval;
+use super::{NSTimeInterval, NSUInteger};
 use crate::frameworks::foundation::ns_string;
 use crate::libc::mach::host::PHYSICAL_MEMORY;
 use crate::objc::{id, msg, msg_class, objc_classes, ClassExports};
@@ -53,6 +53,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (u64)physicalMemory {
     assert_process_info_singleton(env, this); // TODO
     PHYSICAL_MEMORY.into()
+}
+
+- (NSUInteger)processorCount {
+    assert_process_info_singleton(env, this); // TODO
+    // Just returning 1 for now which matches early iPhones
+    1
 }
 
 - (id)processName {
