@@ -1508,7 +1508,13 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::IsTexture(texture)
     }
     unsafe fn BindTexture(&mut self, target: GLenum, texture: GLuint) {
-        assert!(target == gl21::TEXTURE_2D);
+        if target != gl21::TEXTURE_2D {
+            log!(
+                "Tolerating unhandled texture target 0x{:x} in glBindTexture",
+                target
+            );
+            return;
+        }
         gl21::BindTexture(target, texture)
     }
     unsafe fn TexParameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {
