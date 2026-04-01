@@ -16,6 +16,21 @@
 #include <CoreFoundation/CFURL.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+
+// CommonCrypto
+
+#define CC_SHA256_DIGEST_LENGTH 32
+typedef uint32_t CC_LONG;
+typedef struct CC_SHA256state_st {
+  CC_LONG count[2];
+  CC_LONG hash[8];
+  CC_LONG wbuf[16];
+} CC_SHA256_CTX;
+unsigned char *CC_SHA256(const void *, CC_LONG, unsigned char *);
+int CC_SHA256_Init(CC_SHA256_CTX *);
+int CC_SHA256_Update(CC_SHA256_CTX *, const void *, CC_LONG);
+int CC_SHA256_Final(unsigned char *, CC_SHA256_CTX *);
 
 // Objective-C runtime
 

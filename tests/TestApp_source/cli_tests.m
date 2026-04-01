@@ -572,6 +572,50 @@ int test_vsnprintf() {
   return 0;
 }
 
+int test_CC_SHA256() {
+  // SHA-256 of "hello world"
+  const unsigned char expected[CC_SHA256_DIGEST_LENGTH] = {
+      0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08, 0xa5, 0x2e, 0x52,
+      0xd7, 0xda, 0x7d, 0xab, 0xfa, 0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53,
+      0x80, 0xee, 0x90, 0x88, 0xf7, 0xac, 0xe2, 0xef, 0xcd, 0xe9};
+  unsigned char md[CC_SHA256_DIGEST_LENGTH];
+
+  CC_SHA256("hello world", 11, md);
+  if (memcmp(md, expected, sizeof(md)) != 0)
+    return -1;
+
+  CC_SHA256_CTX ctx, copy;
+  CC_SHA256_Init(&ctx);
+  CC_SHA256_Update(&ctx, "hello ", 6);
+  copy = ctx;
+  CC_SHA256_Update(&ctx, "world", 5);
+  CC_SHA256_Final(md, &ctx);
+  if (memcmp(md, expected, sizeof(md)) != 0)
+    return -2;
+
+  // A copied context carries on independently.
+  CC_SHA256_Update(&copy, "world", 5);
+  CC_SHA256_Final(md, &copy);
+  if (memcmp(md, expected, sizeof(md)) != 0)
+    return -3;
+
+  // Several blocks, fed in pieces that don't line up with them.
+  unsigned char data[200];
+  for (int i = 0; i < 200; i++)
+    data[i] = i;
+  unsigned char oneshot[CC_SHA256_DIGEST_LENGTH];
+  CC_SHA256(data, 200, oneshot);
+  CC_SHA256_Init(&ctx);
+  CC_SHA256_Update(&ctx, data, 1);
+  CC_SHA256_Update(&ctx, data + 1, 70);
+  CC_SHA256_Update(&ctx, data + 71, 129);
+  CC_SHA256_Final(md, &ctx);
+  if (memcmp(md, oneshot, sizeof(md)) != 0)
+    return -4;
+
+  return 0;
+}
+
 int test_sscanf() {
   int a, b;
   short c, d;
@@ -6482,6 +6526,7 @@ struct {
 #endif
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
+    FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_sscanf),
     FUNC_DEF(test_swscanf),
     FUNC_DEF(test_realloc),
