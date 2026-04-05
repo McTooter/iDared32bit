@@ -265,10 +265,9 @@ const CLASSES: ClassExports = objc_classes! {
     // Assert (see above).
     let _ = env.objc.borrow_mut::<AppPickerDelegateHostObject>(this);
 
-    let url = ns_string::get_static_str(env, "https://touchhle.org/");
-    let url: id = msg_class![env; NSURL URLWithString:url];
-    let ui_application: id = msg_class![env; UIApplication sharedApplication];
-    assert!(msg![env; ui_application openURL:url]);
+     if let Err(e) = crate::window::open_url(env, "https://touchhle.org/") {
+        echo!("Couldn't open touchHLE.org: {}", e);
+    }
 }
 
 @end
