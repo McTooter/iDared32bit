@@ -6,6 +6,20 @@
 touchHLE_log.txt
 touchHLE_wallpaper.*
 
+# Xcode Project (Modern/Deeply Nested)
+**/*.xcodeproj/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+**/.swiftpm/xcode/xcuserdata/
+**/*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+**/*.xcworkspace/xcshareddata/*.xccheckout
+**/*.xcworkspace/xcshareddata/*.xcscmblueprint
+**/*.playground/**/timeline.xctimeline
+
+# Root (cargo-xcode-generated) project: opening it auto-generates scheme and
+# workspace state that isn't meant to be shared. Only iphone/touchHLE.xcodeproj
+# has an intentionally-tracked shared scheme.
+/touchHLE.xcodeproj/xcshareddata/
+
 # Android
 
 *.iml
