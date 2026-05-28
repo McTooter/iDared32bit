@@ -175,15 +175,31 @@ impl Bundle {
         // We check for the icon in the following order:
         // 1. CFBundleIconFile,
         // 2. CFBundleIconFiles for Icon, Icon-72,
-        // 3. First in CFBundleIconFiles,
-        // (Icon.png / icon.png failsafe is handled in load_icon(),
-        // since it needs filesystem access.)
-        if let Some(filename) = self.plist.get("CFBundleIconFile").or_else(|| {
-            self.plist
-                .get("CFBundleIconFiles")
-                .and_then(|v| v.as_array())
-                .and_then(|a| Self::find_icon(a))
-        }) {
+        // 3. CFBundleIconFiles[0],
+        // 4. CFBundleIcons -> CFBundlePrimaryIcon -> CFBundleIconFiles
+        //    for Icon, Icon-72,
+        // 5. CFBundleIcons -> CFBundlePrimaryIcon -> CFBundleIconFiles[0],
+        // 6. Failsafe Icon.png
+        if let Some(filename) = self
+            .plist
+            .get("CFBundleIconFile")
+            .or_else(|| {
+                self.plist
+                    .get("CFBundleIconFiles")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| Self::find_icon(a))
+            })
+            .or_else(|| {
+                self.plist
+                    .get("CFBundleIcons")
+                    .and_then(|v| v.as_dictionary())
+                    .and_then(|d| d.get("CFBundlePrimaryIcon"))
+                    .and_then(|v| v.as_dictionary())
+                    .and_then(|d| d.get("CFBundleIconFiles"))
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| Self::find_icon(a))
+            })
+        {
             if filename
                 .as_string()
                 .unwrap()
@@ -200,8 +216,6 @@ impl Bundle {
         }
     }
 
-    /// Load icon and round off its corners (and add sheen if needed) for
-    /// display.
     pub fn load_icon(&self, fs: &Fs) -> Result<Image, String> {
         let bytes = if let Some(path) = self.icon_path() {
             fs.read(path)
@@ -218,10 +232,20 @@ impl Bundle {
         // UIPrerenderedIcon is used to avoid iOS applying a sheen effect,
         // should be boolean, but some apps use a string, so we check both.
         // See https://developer.apple.com/library/archive/qa/qa1614/_index.html
+        // In iOS 5+ this key moved under CFBundleIcons -> CFBundlePrimaryIcon;
+        // we check the pre-iOS-5 top-level key first, then the new location.
         // Default if it does not exist is NO/false.
         let add_sheen = !self
             .plist
             .get("UIPrerenderedIcon")
+            .or_else(|| {
+                self.plist
+                    .get("CFBundleIcons")
+                    .and_then(|v| v.as_dictionary())
+                    .and_then(|d| d.get("CFBundlePrimaryIcon"))
+                    .and_then(|v| v.as_dictionary())
+                    .and_then(|d| d.get("UIPrerenderedIcon"))
+            })
             .and_then(|v| v.as_boolean().or(v.as_string().map(|s| s == "YES")))
             .unwrap_or(false);
         // iPhone OS icons are 57px by 57px and the OS always applies a
