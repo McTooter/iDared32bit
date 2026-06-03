@@ -467,6 +467,7 @@ fn substitute_classes(
         || name.starts_with("Flurry")
         || name.starts_with("Mobclix")
         || name.starts_with("OpenFeint")
+        || name.starts_with("FLStat")
         || name.starts_with("Tapjoy"))
     {
         return None;
