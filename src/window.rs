@@ -173,6 +173,9 @@ pub enum Event {
     /// User pressed F12, requesting that execution be paused and the debugger
     /// take over.
     EnterDebugger,
+    /// User pressed Esc (on desktop) or Back (on Android), or held a game
+    /// controller's Back button.
+    HomeButton,
     TextInput(TextInputEvent),
 }
 
@@ -252,12 +255,19 @@ pub struct Window {
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
     virtual_cursor_last_unsticky: Option<(f32, f32, Instant)>,
     virtual_accelerometer_last: Option<(f32, f32, bool)>,
+    /// When a game controller's Back button was pressed, if it's still held
+    /// and hasn't yet been held long enough to return to the app picker.
+    controller_back_held_since: Option<Instant>,
     /// Whether or not we are on the "main" environment stack (rather than
     /// a coroutine stack). Checked in various functions to make sure that
     /// certain SDL functions (that call JNI functions) are on the main
     /// stack on Android.
     pub(super) on_main_stack: bool,
 }
+
+/// How long a game controller's Back button must be held to return to the app
+/// picker. Holding avoids accidents in games that use it.
+const CONTROLLER_BACK_HOLD: Duration = Duration::from_secs(1);
 
 impl Window {
     /// Returns [true] if touchHLE is running on a device where we should always
@@ -407,6 +417,7 @@ impl Window {
             virtual_cursor_last: None,
             virtual_cursor_last_unsticky: None,
             virtual_accelerometer_last: None,
+            controller_back_held_since: None,
             on_main_stack: true,
         };
 
@@ -593,6 +604,12 @@ impl Window {
                 // handled with polling, rather than being event-based.
                 E::ControllerButtonUp { button, .. } | E::ControllerButtonDown { button, .. } => {
                     controller_updated = true;
+                    // Holding Back returns to the app picker (see below).
+                    if button == sdl2::controller::Button::Back {
+                        self.controller_back_held_since =
+                            matches!(event, E::ControllerButtonDown { .. }).then(Instant::now);
+                        continue;
+                    }
                     let Some(button) = translate_button(button) else {
                         continue;
                     };
@@ -835,6 +852,20 @@ impl Window {
                     Event::EnterDebugger
                 }
                 E::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    ..
+                } => {
+                    echo!("Esc pressed, HomeButton event queued.");
+                    Event::HomeButton
+                }
+                E::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::AcBack),
+                    ..
+                } => {
+                    echo!("Back button pressed, HomeButton event queued.");
+                    Event::HomeButton
+                }
+                E::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::Backspace),
                     ..
                 } => {
@@ -854,6 +885,15 @@ impl Window {
                 }
                 _ => continue,
             })
+        }
+
+        if let Some(since) = self.controller_back_held_since {
+            if since.elapsed() >= CONTROLLER_BACK_HOLD {
+                // Only once per hold.
+                self.controller_back_held_since = None;
+                echo!("Controller Back button held, HomeButton event queued.");
+                self.event_queue.push_back(Event::HomeButton);
+            }
         }
 
         if controller_updated {

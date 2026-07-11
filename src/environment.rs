@@ -128,8 +128,10 @@ pub struct Environment {
     gdb_server: Option<Box<gdb::GdbServer>>,
     pub env_vars: HashMap<Vec<u8>, MutPtr<u8>>,
     /// Set to [true] when created using [Environment::new_without_app].
-    pub dump_file: Option<std::fs::File>,
     pub is_app_picker: bool,
+    /// Set to [true] to signal a return to the app picker.
+    pub return_to_app_picker: bool,
+    pub dump_file: Option<std::fs::File>,
     yielder: *const Yielder<Environment, Environment>,
     // The amount of ticks to run for Some(value), or single-stepping for None.
     // Sadly, setting ticks to 1 does not step properly, so Option is required.
@@ -652,7 +654,9 @@ impl Environment {
                         .branch_with_link(entry_point_addr, env.dyld.thread_exit_routine());
                     env.run_call();
 
-                    panic!("Main function exited unexpectedly!");
+                    if !env.return_to_app_picker {
+                        panic!("Main function exited unexpectedly!");
+                    }
                 })
             }));
             if let Err(e) = res {
@@ -693,8 +697,9 @@ impl Environment {
             options: NullableBox::new(options),
             gdb_server: None,
             env_vars: Default::default(),
-            dump_file: None,
             is_app_picker: false,
+            return_to_app_picker: false,
+            dump_file: None,
             yielder: std::ptr::null(),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
@@ -827,8 +832,9 @@ impl Environment {
             options: NullableBox::new(options),
             gdb_server: None,
             env_vars: Default::default(),
-            dump_file: None,
             is_app_picker: true,
+            return_to_app_picker: false,
+            dump_file: None,
             yielder: std::ptr::null(),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
@@ -886,8 +892,9 @@ impl Environment {
             options: NullableBox::null(),
             gdb_server: None,
             env_vars: HashMap::new(),
-            dump_file: None,
             is_app_picker: true,
+            return_to_app_picker: false,
+            dump_file: None,
             yielder: std::ptr::null(),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
@@ -1350,9 +1357,16 @@ impl Environment {
         }
     }
 
-    /// Run the emulator. This is the main loop and won't return until app exit.
-    /// Only `main.rs` should call this.
-    pub fn run(mut self) {
+    /// Run the emulator. This is the main loop.
+    ///
+    /// It returns `true` when the app asks to go back to the app picker.
+    /// The caller should then drop this `Environment` and show the app picker.
+    ///
+    /// It does not return `false` when the entire touchHLE process is quitting
+    /// (e.g. the user closed the window, producing an `Event::Quit`); instead
+    /// the guest termination path in `ui_application::exit` calls
+    /// `std::process::exit` to end the process so this function never returns.
+    pub fn run(mut self) -> bool {
         let mut curr_host_context = self.threads[0].host_context.take().unwrap();
         let panic_cell = self.panic_cell.clone();
         if let Some(mut gdb_server) = self.gdb_server.take() {
@@ -1439,6 +1453,14 @@ impl Environment {
 
             if let Some(w) = self.window.as_mut() {
                 w.on_main_stack = true;
+            }
+
+            if self.return_to_app_picker {
+                // Put the context back so it's freed when Environment drops.
+                let thread = self.threads.get_mut(self.current_thread).unwrap();
+                assert!(thread.host_context.is_none());
+                thread.host_context = old_context;
+                return true;
             }
 
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1638,6 +1660,11 @@ impl Environment {
                                     .bytes_at_mut(mem::Ptr::from_bits(start), len)
                                     .fill(0);
                             }
+
+                            if self.return_to_app_picker {
+                                return ThreadNextAction::ReturnToHost;
+                            }
+
                             // On entry_size 4 return here since there's
                             // no space to add a ret after the svc call
                             if svc & dyld::Dyld::SVC_LAZY_LINK_RET_FLAG != 0 {

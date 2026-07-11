@@ -152,6 +152,18 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                     log!("Ignoring EnterDebugger event: no debugger connected.");
                 }
             }
+            Event::HomeButton => {
+                // Pressing Home on iPhone OS 2 and 3 quits the app, which is
+                // told first so it can save its progress. Only do that once,
+                // even if Home is pressed again before we've returned.
+                if !env.return_to_app_picker {
+                    log!("Handling HomeButton event: returning to app picker.");
+                    if !env.is_app_picker {
+                        ui_application::notify_will_terminate(env);
+                    }
+                    env.return_to_app_picker = true;
+                }
+            }
             Event::TextInput(text_event) => {
                 let responder = env.framework_state.uikit.ui_responder.first_responder;
                 let class = msg![env; responder class];
