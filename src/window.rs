@@ -29,6 +29,16 @@ use std::num::NonZeroU32;
 use std::ptr::null_mut;
 use std::time::{Duration, Instant};
 
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[cfg(target_os = "ios")]
+struct SDL_SysWMinfoUIKit {
+    _window: *const std::ffi::c_void,
+    framebuffer: std::ffi::c_uint,
+    colorbuffer: std::ffi::c_uint,
+    resolve_framebuffer: std::ffi::c_uint,
+}
+
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum DeviceFamily {
@@ -254,7 +264,7 @@ impl Window {
     /// display fullscreen, but SDL2 will let us control the orientation, i.e.
     /// Android devices.
     pub fn rotatable_fullscreen() -> bool {
-        env::consts::OS == "android"
+        env::consts::OS == "android" || env::consts::OS == "ios" || env::consts::OS == "ios-sim"
     }
     pub fn new(
         title: &str,
@@ -1201,6 +1211,9 @@ impl Window {
     fn display_splash(&mut self) {
         assert!(self.splash_image.is_some());
 
+        self.rebind_framebuffer();
+        self.swap_window();
+
         // OpenGL ES expects bottom-to-top row order for image data, but our
         // image data will be top-to-bottom. A reflection transform compensates.
         let matrix = self.rotation_matrix().multiply(&Matrix::y_flip());
@@ -1247,17 +1260,34 @@ impl Window {
                 gles11::LINEAR as _,
             );
 
+            // iOS and PowerVR only support NPOT texture with CLAMP_TO_EDGE
+            // It doesn't matter for texture data from an image like the
+            // splash screen, we don't want to deal with striping from
+            // NPOT to POT conversion.
+            gl_ctx.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_WRAP_S,
+                gles11::CLAMP_TO_EDGE as _,
+            );
+
+            gl_ctx.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_WRAP_T,
+                gles11::CLAMP_TO_EDGE as _,
+            );
+
             present_frame(
                 gl_ctx.as_mut(),
                 viewport,
                 matrix,
                 /* virtual_cursor_visible_at: */ None,
+                None,
             );
 
             gl_ctx.DeleteTextures(1, &texture);
         };
 
-        self.window.gl_swap_window();
+        self.swap_window();
 
         // hold onto GL context so the image doesn't disappear, and hold
         // onto image so we can rotate later if necessary
@@ -1265,8 +1295,69 @@ impl Window {
 
     /// Swap front-buffer and back-buffer so the result of OpenGL rendering is
     /// presented.
-    pub fn swap_window(&self) {
+    pub fn swap_window(&mut self) {
+        // Deliberately does NOT rebind to the internal context's renderbuffer
+        // here: on iOS that would call make_internal_gl_ctx_current() and make
+        // the internal GL context current right before the swap, causing SDL to
+        // present the internal (empty) view instead of whichever context's view
+        // was actually just rendered. The fast EAGL present path
+        // (present_renderbuffer) draws into the guest context's own view and
+        // relies on that same context still being current when we swap. SDL's
+        // iOS swapBuffers already re-asserts the current view's context and
+        // rebinds its renderbuffer internally, so no rebind is needed here.
         self.window.gl_swap_window();
+    }
+
+    #[cfg(target_os = "ios")]
+    fn get_sys_wm_info_ios(&self) -> SDL_SysWMinfoUIKit {
+        use sdl2_sys::{SDL_GetVersion, SDL_GetWindowWMInfo, SDL_SysWMinfo};
+        use std::mem::MaybeUninit;
+
+        unsafe {
+            let mut wminfo = MaybeUninit::<SDL_SysWMinfo>::zeroed();
+            SDL_GetVersion(&raw mut (*wminfo.as_mut_ptr()).version);
+            SDL_GetWindowWMInfo(self.window.raw(), wminfo.as_mut_ptr());
+
+            let uikit_info_ptr = (&raw const (*wminfo.as_ptr()).info) as *const SDL_SysWMinfoUIKit;
+            uikit_info_ptr.read()
+        }
+    }
+
+    /// The framebuffer object that backs the internal (compositor) context's
+    /// own on-screen view, for use when presenting the composited frame through
+    /// that context (see `core_animation::composition`).
+    ///
+    /// On iOS every GL context owns a separate view with its own
+    /// FBO/renderbuffer, and framebuffer objects are never shared between
+    /// contexts, so the composite must be drawn into *this* framebuffer for
+    /// SDL's `swapBuffers` (which presents the current context's view
+    /// renderbuffer) to show it. SDL reports the framebuffer of whichever view
+    /// is currently attached to the window, and making the internal context
+    /// current is what attaches its view — so this makes the internal context
+    /// current first, then reads the value. On desktop GL there is no such
+    /// per-view framebuffer and 0 is the genuine default framebuffer.
+    pub fn internal_ctx_default_framebuffer(&mut self) -> u32 {
+        #[cfg(target_os = "ios")]
+        {
+            // Attach the internal context's view (drops immediately; the SDL
+            // context stays current afterwards).
+            let _ = self.make_internal_gl_ctx_current();
+            self.get_sys_wm_info_ios().framebuffer
+        }
+        #[cfg(not(target_os = "ios"))]
+        0
+    }
+
+    pub fn rebind_framebuffer(&mut self) {
+        #[cfg(target_os = "ios")]
+        {
+            use crate::gles::gles11_raw as gles11;
+            let framebuffer = self.get_sys_wm_info_ios().framebuffer;
+            unsafe {
+                self.make_internal_gl_ctx_current()
+                    .BindFramebufferOES(gles11::FRAMEBUFFER_OES, framebuffer);
+            }
+        }
     }
 
     /// Consider the emulated device to be rotated to a particular orientation.

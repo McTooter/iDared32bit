@@ -17,7 +17,8 @@ use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
 use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, FpsCounter};
+use crate::gles::present::{present_frame, FpsCounter, TextureCoordinates};
+use crate::gles::util::to_pot_texture_dim;
 use crate::gles::GLES; // constants only
 use crate::image::Image;
 use crate::matrix::Matrix;
@@ -42,6 +43,7 @@ struct MiscGlObjects {
     basic_square_buffer: GLuint,
     /// [FLIPPED_SQUARE_POINTS], used as texture co-ords for some textured
     /// quads.
+    #[allow(dead_code)]
     flipped_square_buffer: GLuint,
     /// 9-patch rounded corner texture co-ords (always the same).
     rounded_vertex_buffer: GLuint,
@@ -137,6 +139,8 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     let scale_hack: u32 = env.options.scale_hack.get();
     let fb_width = screen_bounds.size.width as u32 * scale_hack;
     let fb_height = screen_bounds.size.height as u32 * scale_hack;
+    let (pot_width, pot_height) = to_pot_texture_dim(fb_width, fb_height);
+    let current_rotation = env.window().current_rotation();
     let present_frame_args = (
         env.window().viewport(),
         env.window().rotation_matrix(),
@@ -150,6 +154,13 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     let opacity = 1.0;
 
     let window = env.window.as_mut().unwrap();
+    // The framebuffer backing the internal (compositor) context's own on-screen
+    // view. On iOS each GL context/view has its own FBO and they are never
+    // shared, so the composited frame must be drawn into this framebuffer for
+    // SDL swapBuffers (which presents the current context's view renderbuffer)
+    // to show it. Queried after making the internal context current (which
+    // attaches its view to the window); 0 on desktop GL.
+    let default_fb = window.internal_ctx_default_framebuffer();
     let mut gles = window.make_internal_gl_ctx_current();
 
     // Set up GL objects needed for render-to-texture. We could draw directly
@@ -175,8 +186,8 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 gles11::TEXTURE_2D,
                 0,
                 gles11::RGBA as _,
-                fb_width as _,
-                fb_height as _,
+                pot_width as _,
+                pot_height as _,
                 0,
                 gles11::RGBA,
                 gles11::UNSIGNED_BYTE,
@@ -191,6 +202,21 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 gles11::TEXTURE_2D,
                 gles11::TEXTURE_MAG_FILTER,
                 gles11::LINEAR as _,
+            );
+
+            // iOS and PowerVR only support NPOT texture with CLAMP_TO_EDGE
+            // It doesn't matter for texture data from an image, we don't
+            // want to deal with striping from NPOT to POT conversion.
+            gles.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_WRAP_S,
+                gles11::CLAMP_TO_EDGE as _,
+            );
+
+            gles.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_WRAP_T,
+                gles11::CLAMP_TO_EDGE as _,
             );
 
             gles.GenFramebuffersOES(1, &mut framebuffer);
@@ -361,12 +387,19 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     // default framebuffer (0) so we need to unbind our internal framebuffer.
     unsafe {
         gles.BindTexture(gles11::TEXTURE_2D, texture);
-        gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
+        gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, default_fb);
         present_frame(
             gles.as_mut(),
             present_frame_args.0,
             present_frame_args.1,
             present_frame_args.2,
+            Some(&TextureCoordinates::normalized(
+                fb_width,
+                fb_height,
+                pot_width,
+                pot_height,
+                current_rotation,
+            )),
         );
     }
     std::mem::drop(gles);
@@ -598,6 +631,22 @@ unsafe fn composite_layer_recursive(
             .as_ref()
             .unwrap();
 
+        let (u_max, v_max) = {
+            let (w, h) = if let Some((_, w, h)) = &host_obj.presented_pixels {
+                (*w, *h)
+            } else if host_obj.contents != nil {
+                let image = cg_image::borrow_image(&env.objc, host_obj.contents);
+                image.dimensions()
+            } else if let Some(cg_context) = host_obj.cg_context {
+                let (w, h, _) = cg_bitmap_context::get_data(&env.objc, cg_context);
+                (w, h)
+            } else {
+                (1, 1)
+            };
+            let (pw, ph) = to_pot_texture_dim(w, h);
+            (w as f32 / pw as f32, h as f32 / ph as f32)
+        };
+
         gles.Color4f(opacity, opacity, opacity, opacity);
         if opacity == 1.0 && host_obj.opaque && !have_background {
             gles.Disable(gles11::BLEND);
@@ -611,17 +660,17 @@ unsafe fn composite_layer_recursive(
         gles.VertexPointer(2, gles11::FLOAT, 0, 0 as *const GLvoid);
 
         gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+        gles.BindBuffer(gles11::ARRAY_BUFFER, 0);
+
         // Normal images will have top-to-bottom row order, but OpenGL ES
         // expects bottom-to-top, so flip the UVs in that case.
-        gles.BindBuffer(
-            gles11::ARRAY_BUFFER,
-            if host_obj.contents != nil {
-                misc.basic_square_buffer
-            } else {
-                misc.flipped_square_buffer
-            },
-        );
-        gles.TexCoordPointer(2, gles11::FLOAT, 0, 0 as *const GLvoid);
+        let tex_coords: [f32; 8] = if host_obj.contents != nil {
+            [0.0, v_max, 0.0, 0.0, u_max, v_max, u_max, 0.0]
+        } else {
+            [0.0, 0.0, 0.0, v_max, u_max, 0.0, u_max, v_max]
+        };
+
+        gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
         gles.Enable(gles11::TEXTURE_2D);
         gles.DrawElements(
             gles11::TRIANGLES,
@@ -707,17 +756,45 @@ unsafe fn upload_slice<T: SafeWrite>(
 }
 
 unsafe fn upload_rgba8_pixels(gles: &mut dyn GLES, pixels: &[u8], dimensions: (u32, u32)) {
-    gles.TexImage2D(
-        gles11::TEXTURE_2D,
-        0,
-        gles11::RGBA as _,
-        dimensions.0 as _,
-        dimensions.1 as _,
-        0,
-        gles11::RGBA,
-        gles11::UNSIGNED_BYTE,
-        pixels.as_ptr() as *const _,
-    );
+    gles.PixelStorei(gles11::UNPACK_ALIGNMENT, 1);
+    let (width, height) = dimensions;
+    let (pot_width, pot_height) = to_pot_texture_dim(width, height);
+    if (pot_width, pot_height) == (width, height) {
+        gles.TexImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            gles11::RGBA as _,
+            width as _,
+            height as _,
+            0,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            pixels.as_ptr() as *const _,
+        );
+    } else {
+        gles.TexImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            gles11::RGBA as _,
+            pot_width as _,
+            pot_height as _,
+            0,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            std::ptr::null(),
+        );
+        gles.TexSubImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            0,
+            0,
+            width as _,
+            height as _,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            pixels.as_ptr() as *const _,
+        );
+    }
     gles.TexParameteri(
         gles11::TEXTURE_2D,
         gles11::TEXTURE_MIN_FILTER,
@@ -727,5 +804,19 @@ unsafe fn upload_rgba8_pixels(gles: &mut dyn GLES, pixels: &[u8], dimensions: (u
         gles11::TEXTURE_2D,
         gles11::TEXTURE_MAG_FILTER,
         gles11::LINEAR as _,
+    );
+
+    // iOS and PowerVR only support NPOT texture with CLAMP_TO_EDGE
+    // It doesn't matter for texture data from an image, we don't
+    // want to deal with striping from NPOT to POT conversion.
+    gles.TexParameteri(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_WRAP_S,
+        gles11::CLAMP_TO_EDGE as _,
+    );
+    gles.TexParameteri(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_WRAP_T,
+        gles11::CLAMP_TO_EDGE as _,
     );
 }

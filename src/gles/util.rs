@@ -13,6 +13,12 @@ use super::GLES;
 ///
 /// Beware: Rust's type checker won't complain if you mix up [GLfixed] with
 /// [GLint], but they have very different meanings.
+pub fn to_pot_texture_dim(width: u32, height: u32) -> (u32, u32) {
+    let width = width.next_power_of_two();
+    let height = height.next_power_of_two();
+    (width, height)
+}
+
 pub fn fixed_to_float(fixed: GLfixed) -> GLfloat {
     ((fixed as f64) / ((1 << 16) as f64)) as f32
 }

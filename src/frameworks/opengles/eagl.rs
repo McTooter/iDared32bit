@@ -14,7 +14,8 @@ use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, FpsCounter};
+use crate::gles::present::{present_frame, FpsCounter, TextureCoordinates};
+use crate::gles::util::to_pot_texture_dim;
 use crate::gles::{create_gles1_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
 use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject};
@@ -67,6 +68,17 @@ pub(super) struct EAGLContextHostObject {
     fps_counter: Option<FpsCounter>,
     next_frame_due: Option<Instant>,
     pub mapped_buffers: HashMap<GLuint, (MutPtr<GLvoid>, *mut GLvoid)>,
+    /// On iOS, the framebuffer object SDL bound as current for this
+    /// context's own view right after it was created. There is no true
+    /// "default framebuffer" 0 on iOS the way there is on desktop GL: SDL
+    /// creates a dedicated FBO/renderbuffer pair backing each context's own
+    /// `CAEAGLLayer`-backed view. Framebuffer objects are never shared
+    /// between GL contexts even within a sharegroup, so this ID is only
+    /// meaningful when this same context is current, which is exactly the
+    /// case where we need it (see present_renderbuffer below). Always 0 on
+    /// other platforms, where binding 0 is genuinely the default
+    /// framebuffer.
+    drawable_framebuffer: GLuint,
 }
 impl HostObject for EAGLContextHostObject {}
 
@@ -83,6 +95,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         fps_counter: None,
         next_frame_due: None,
         mapped_buffers: HashMap::new(),
+        drawable_framebuffer: 0,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -138,12 +151,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     let mut gles1_ins = create_gles1_ctx(env);
 
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
-    {
-        let gles1_ctx = gles1_ins.make_current(window);
+    let drawable_framebuffer = {
+        let mut gles1_ctx = gles1_ins.make_current(window);
         log!("Driver info: {}", unsafe { gles1_ctx.driver_description() });
-    }
+        let mut framebuffer: GLint = 0;
+        if cfg!(target_os = "ios") {
+            unsafe {
+                gles1_ctx.GetIntegerv(gles11::FRAMEBUFFER_BINDING_OES, &mut framebuffer);
+            }
+        }
+        framebuffer as GLuint
+    };
 
-    env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles1_ins);
+    let host_object = env.objc.borrow_mut::<EAGLContextHostObject>(this);
+    host_object.gles_ctx = Some(gles1_ins);
+    host_object.drawable_framebuffer = drawable_framebuffer;
 
     env.window.as_mut().unwrap().set_share_with_current_context(false);
 
@@ -163,12 +185,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     let mut gles1_ins = create_gles1_ctx(env);
 
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
-    {
-        let gles1_ctx = gles1_ins.make_current(window);
+    let drawable_framebuffer = {
+        let mut gles1_ctx = gles1_ins.make_current(window);
         log!("Driver info: {}", unsafe { gles1_ctx.driver_description() });
-    }
+        let mut framebuffer: GLint = 0;
+        if cfg!(target_os = "ios") {
+            unsafe {
+                gles1_ctx.GetIntegerv(gles11::FRAMEBUFFER_BINDING_OES, &mut framebuffer);
+            }
+        }
+        framebuffer as GLuint
+    };
 
-    env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles1_ins);
+    let host_object = env.objc.borrow_mut::<EAGLContextHostObject>(this);
+    host_object.gles_ctx = Some(gles1_ins);
+    host_object.drawable_framebuffer = drawable_framebuffer;
 
     this
 }
@@ -312,7 +343,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         );
         // re-borrow
         unsafe {
-            present_renderbuffer(env);
+            present_renderbuffer(env, this);
         }
     } else {
         if fullscreen_layer != nil {
@@ -507,6 +538,10 @@ unsafe fn read_renderbuffer(gles: &mut dyn GLES, mut pixel_buffer: Vec<u8>) -> (
         renderbuffer,
     );
 
+    // Force completion of any pending draws before reading
+    gles.Finish();
+    gles.PixelStorei(gles11::PACK_ALIGNMENT, 1);
+
     // Read the pixels
     let size = (width_u32 as usize)
         .checked_mul(height_u32 as usize)
@@ -546,11 +581,16 @@ unsafe fn read_renderbuffer(gles: &mut dyn GLES, mut pixel_buffer: Vec<u8>) -> (
 /// (which should be provided by the app) to a texture and presents it with
 /// [present_frame], trying to avoid noticeably modifying OpenGL ES state while
 /// doing so. The front and back buffers are then swapped.
-unsafe fn present_renderbuffer(env: &mut Environment) {
+unsafe fn present_renderbuffer(env: &mut Environment, context: id) {
     // Save these for when we need to draw the frame
     let viewport = env.window.as_mut().unwrap().viewport();
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
+    let current_rotation = env.window.as_mut().unwrap().current_rotation();
+    let drawable_framebuffer = env
+        .objc
+        .borrow::<EAGLContextHostObject>(context)
+        .drawable_framebuffer;
 
     let gles_ctx = super::get_thread_context(
         &mut env.framework_state.opengles,
@@ -568,7 +608,8 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // rotated, scaled or letterboxed as appropriate.
 
     let renderbuffer: GLuint = get_int(gles, gles11::RENDERBUFFER_BINDING_OES) as _;
-    let (width, height) = get_renderbuffer_size(gles);
+    let (render_width, render_height) = get_renderbuffer_size(gles);
+    let (texture_width, texture_height) = to_pot_texture_dim(render_width as _, render_height as _);
 
     // To avoid confusing the guest app, we need to be able to undo any
     // state changes we make.
@@ -590,15 +631,33 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     let mut texture: GLuint = 0;
     gles.GenTextures(1, &mut texture);
     gles.BindTexture(gles11::TEXTURE_2D, texture);
-    gles.CopyTexImage2D(
+    gles.TexImage2D(
         gles11::TEXTURE_2D,
         0,
-        gles11::RGB as _,
+        gles11::RGBA as _,
+        texture_width as _,
+        texture_height as _,
+        0,
+        gles11::RGBA,
+        gles11::UNSIGNED_BYTE,
+        std::ptr::null(),
+    );
+
+    // Force completion of any pending draws targeting the renderbuffer before
+    // copying from it. Tile-based deferred renderers (this includes Apple's
+    // GPUs, as well as e.g. ARM Mali) don't always resolve their tile cache
+    // to memory in time for CopyTexSubImage2D to see it, causing it to read
+    // stale/blank data despite the app having genuinely rendered a frame.
+    gles.Finish();
+    gles.CopyTexSubImage2D(
+        gles11::TEXTURE_2D,
         0,
         0,
-        width,
-        height,
         0,
+        0,
+        0,
+        render_width as _,
+        render_height as _,
     );
     // The texture will not have any mip levels so we must ensure the filter
     // does not use them, else rendering will fail.
@@ -677,8 +736,30 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
         tex_env_mode_arr.as_ptr().cast(),
     );
 
+    // On iOS, framebuffer 0 (bound implicitly by DeleteFramebuffersOES above)
+    // is not a real on-screen framebuffer the way it is on desktop GL: SDL
+    // gives this context its own dedicated FBO for its view, captured in
+    // drawable_framebuffer when the context was created (see initWithAPI:
+    // above). Rebind it here so the quad below actually lands somewhere
+    // visible instead of an incomplete/unbound framebuffer.
+    if cfg!(target_os = "ios") {
+        gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, drawable_framebuffer);
+    }
+
     // Draw the quad
-    present_frame(gles, viewport, rotation_matrix, virtual_cursor_visible_at);
+    present_frame(
+        gles,
+        viewport,
+        rotation_matrix,
+        virtual_cursor_visible_at,
+        Some(&TextureCoordinates::normalized(
+            render_width as _,
+            render_height as _,
+            texture_width,
+            texture_height,
+            current_rotation,
+        )),
+    );
 
     // Clean up the texture
     gles.DeleteTextures(1, &texture);
@@ -749,7 +830,7 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
 
     // SDL2's documentation warns 0 should be bound to the draw framebuffer
     // when swapping the window, so this is the perfect moment.
-    env.window.as_ref().unwrap().swap_window();
+    env.window.as_mut().unwrap().swap_window();
 
     let mut gles_boxed = gles_ctx.make_current(env.window.as_mut().unwrap());
     let gles = gles_boxed.as_mut();
@@ -757,6 +838,4 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // Restore the other bindings
     gles.BindTexture(gles11::TEXTURE_2D, old_texture_2d);
     gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, old_framebuffer);
-
-    // { let err = gles.GetError(); if err != 0 { panic!("{:#x}", err); } }
 }

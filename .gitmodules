@@ -7,5 +7,5 @@
 	url = https://github.com/kcat/openal-soft
 [submodule "vendor/SDL"]
 	path = vendor/SDL
-	url = https://github.com/libsdl-org/SDL.git
-	branch = 07d0f51fa292895443f563f0cbde4cb3802d87fa
+	url = https://github.com/apexad/SDL.git
+	branch = touchhle-ios-host
