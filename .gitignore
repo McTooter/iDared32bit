@@ -42,3 +42,7 @@ android/build
 # Default developer dump file
 
 DUMP.txt
+
+# Local, uncommitted Xcode signing settings (holds your Apple Team ID)
+
+/Local.xcconfig

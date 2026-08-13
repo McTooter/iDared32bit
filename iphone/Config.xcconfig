@@ -1,0 +1,10 @@
+// Base build configuration for iDared 32bit (iOS app).
+//
+// Signing settings — your Apple Development Team ID — live in the git-ignored
+// Local.xcconfig at the repo root (one file shared with the dev/standalone
+// project); see Local.xcconfig.example there for the template.
+//
+// The `?` makes the include optional, so the project still opens and builds
+// when Local.xcconfig is absent (CI, or a contributor without a signing
+// identity); it just won't be signed with a team until one is provided.
+#include? "../Local.xcconfig"
