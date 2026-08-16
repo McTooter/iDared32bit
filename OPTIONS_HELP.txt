@@ -200,8 +200,11 @@ Graphics driver options:
 
 Debugging options:
     --disable-direct-memory-access
-        Force dynarmic to always access guest memory via the memory access
-        callbacks, rather than using the fast direct access path (page tables).
+        Force the CPU emulation backend to access guest data memory via the
+        memory access callbacks, rather than reading and writing the guest
+        mapping directly. Slower, but every access then goes through the
+        same checks as touchHLE's own accesses. Instruction fetch is always
+        direct.
 
     --gdb=...
         Starts touchHLE in debugging mode, listening for GDB remote serial

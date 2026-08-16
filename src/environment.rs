@@ -1342,9 +1342,9 @@ impl Environment {
                 self.remaining_ticks = None;
             } else {
                 // 100,000 ticks is an arbitrary number. It needs to be
-                // reasonably large so we aren't jumping in and out of dynarmic
-                // or trying to poll for events too often. At the same time,
-                // very large values are bad for responsiveness.
+                // reasonably large so we aren't jumping in and out of the CPU
+                // interpreter or trying to poll for events too often. At the
+                // same time, very large values are bad for responsiveness.
                 self.remaining_ticks = Some(100_000);
             }
             let mut kill_current_thread = false;
@@ -2140,5 +2140,102 @@ mod dylib_sorting_tests {
             result.is_err(),
             "Sort should detect self-dependency as a cycle and return an error"
         );
+    }
+
+    /// Runs libstdc++'s static initializers, in batched (ticks-based) mode,
+    /// on the real bundled libgcc and libstdc++: real guest code that
+    /// exercises `svc` handling, stores through the memory callbacks, and
+    /// CP15 barriers, all early enough to fail fast if any of them break.
+    mod libstdcxx_static_initializers {
+        use crate::cpu::{Cpu, CpuState};
+        use crate::mach_o::{MachO, SectionType};
+        use crate::mem::{ConstPtr, Mem, Ptr};
+        use crate::objc::ObjC;
+
+        #[test]
+        fn trace_libstdcxx_static_initializers() {
+            let mut mem = Mem::new();
+            mem.set_null_segment_size(0x1000);
+
+            let libgcc_bytes = std::fs::read("touchHLE_dylibs/libgcc_s.1.dylib").unwrap();
+            let libgcc = MachO::load_from_bytes(
+                &libgcc_bytes,
+                &mut mem,
+                "libgcc_s.1.dylib".to_string(),
+                0x30000000,
+            )
+            .unwrap();
+
+            let libstdcxx_bytes = std::fs::read("touchHLE_dylibs/libstdc++.6.0.9.dylib").unwrap();
+            let libstdcxx = MachO::load_from_bytes(
+                &libstdcxx_bytes,
+                &mut mem,
+                "libstdc++.6.0.9.dylib".to_string(),
+                0x3748a000,
+            )
+            .unwrap();
+
+            let mut objc = ObjC::new();
+            let mut dyld = crate::dyld::Dyld::new();
+            let bins = [libgcc, libstdcxx];
+            dyld.do_initial_linking(&bins, &mut mem, &mut objc);
+
+            let mut cpu = Cpu::new(None);
+            cpu.regs_mut()[Cpu::SP] = 0xFFFFF000;
+            cpu.regs_mut()[Cpu::LR] = dyld.return_to_host_routine().addr_with_thumb_bit();
+
+            let Some(section) = bins[1].get_section(SectionType::ModInitFuncPointers) else {
+                panic!("no ModInitFuncPointers section");
+            };
+            assert!(section.size % 4 == 0);
+            let base: crate::mem::ConstPtr<crate::abi::GuestFunction> =
+                Ptr::from_bits(section.addr);
+            let count = section.size / 4;
+            eprintln!("{count} static initializer(s) in libstdc++");
+
+            for idx in 0..count {
+                let func = mem.read(base + idx);
+                eprintln!("=== Calling static initializer {idx} at {:?}", func);
+                cpu.branch(func);
+                cpu.regs_mut()[Cpu::LR] = dyld.return_to_host_routine().addr_with_thumb_bit();
+
+                for step in 0..500000u32 {
+                    let pc = cpu.pc_with_thumb_bit();
+                    let inst: u32 = mem.read(ConstPtr::from_bits(pc.addr_without_thumb_bit()));
+                    let mut ticks = 100000u64;
+                    let state = cpu.run_or_step(&mut mem, Some(&mut ticks));
+                    match state {
+                        CpuState::Normal => {}
+                        CpuState::Svc(svc) => {
+                            if svc == crate::dyld::Dyld::SVC_RETURN_TO_HOST {
+                                eprintln!(
+                                "initializer {idx} returned to host cleanly after {step} steps."
+                            );
+                                break;
+                            }
+                            eprintln!(
+                                "initializer {idx} step {step}: SVC {svc:#x} at pc={:?}, skipping",
+                                pc
+                            );
+                            break;
+                        }
+                        CpuState::Error(e) => {
+                            eprintln!(
+                                "initializer {idx} step {step}: CPU ERROR {:?} at pc={:?} \
+                             inst={:#010x} sp={:#010x} lr={:#010x} r0={:#010x} r1={:#010x}",
+                                e,
+                                pc,
+                                inst,
+                                cpu.regs()[Cpu::SP],
+                                cpu.regs()[Cpu::LR],
+                                cpu.regs()[0],
+                                cpu.regs()[1]
+                            );
+                            panic!("CPU error during trace: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

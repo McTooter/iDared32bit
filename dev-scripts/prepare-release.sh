@@ -28,7 +28,8 @@ if [[ "$PHASE" = "--prepare-files" ]]; then
 
     pandoc -s ../CHANGELOG.md -o new_release/CHANGELOG.html
 
-    cp -r gpl-3.0.txt new_release/COPYING.txt
+    # Binaries are MPL-2.0, like the source; see src/licenses.rs.
+    cp ../LICENSE new_release/LICENSE.txt
 
     cp ../OPTIONS_HELP.txt new_release/
     cp ../touchHLE_default_options.txt new_release/
@@ -73,7 +74,7 @@ elif [[ "$PHASE" = "--create-zip-windows" || "$PHASE" = "--create-zip-macos" || 
     if [[ "$PHASE" = "--create-zip-windows" ]]; then
         zip -r "$OUTPUT_PATH" *
     else
-        zip "$OUTPUT_PATH" CHANGELOG.html COPYING.txt README.html
+        zip "$OUTPUT_PATH" CHANGELOG.html LICENSE.txt README.html
     fi
 else
     echo "Unknown or missing phase."

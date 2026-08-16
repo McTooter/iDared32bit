@@ -1195,7 +1195,8 @@ fn change_copyright_page(
 
                 let line = &copyright_info_text[line_start..line_end];
 
-                // Force pagination before headings (in Dynarmic's license text)
+                // Force pagination before Markdown-style headings, if any
+                // appear in the license text
                 if !is_first_line && line.starts_with("###") {
                     break;
                 }

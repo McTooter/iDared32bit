@@ -68,9 +68,12 @@ encoding_rs = "0.8.35"
 # behind this, but the actual HIDAPI is not used by touchHLE (see window.rs).
 # Note that the submodule in vendor/SDL2/ must use exactly the same revision of
 # SDL2 that rust-sdl2 uses, so that the Android JNI interface matches.
+#
+# touchhle-ios-host branch is a fork of johnny901901901/rust-sdl2
+# See their Applesauce project (https://github.com/johnny901901901/Applesauce).
 sdl2 = { git = "https://github.com/touchHLE/rust-sdl2", tag = "touchHLE-3", features = ["hidapi"] }
 sdl2-sys = { git = "https://github.com/touchHLE/rust-sdl2", tag = "touchHLE-3" }
-touchHLE_dynarmic_wrapper = { path = "src/cpu/dynarmic_wrapper" }
+touchHLE_mgba_wrapper = { path = "src/cpu/mgba_wrapper" }
 touchHLE_gl_bindings = { path = "src/gles/gl_bindings" }
 touchHLE_openal_soft_wrapper = { path = "src/audio/openal_soft_wrapper" }
 touchHLE_pvrt_decompress_wrapper = { path = "src/image/pvrt_decompress_wrapper" }

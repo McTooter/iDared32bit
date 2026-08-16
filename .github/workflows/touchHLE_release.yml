@@ -32,8 +32,6 @@ jobs:
         run: dev-scripts/format.sh --check
       - name: Get Submodules
         run: git submodule update --init
-      - name: Install Boost
-        run: brew install boost
       - name: Try to get cached copy of cmake
         id: cache-cmake
         uses: actions/cache@v3
@@ -46,9 +44,8 @@ jobs:
       - if: ${{ steps.cache-cmake.outputs.cache-hit != 'true' }}
         name: Extract Cmake
         run: tar xzvf "cmake-3.31.6-macos-universal.tar.gz" -C vendor && mv "vendor/cmake-3.31.6-macos-universal/CMake.app/Contents/" vendor/cmake && rm -rf vendor/cmake-3.31.6-macos-universal
-      # This is the earliest point at which we can do linting: clippy will end up
-      # building dynarmic, which needs Boost, but we don't need LLVM until
-      # building tests.
+      # This is the earliest point at which we can do linting: we don't need
+      # LLVM until building tests.
       - name: Lint
         run: dev-scripts/lint.sh
         env:
@@ -110,18 +107,6 @@ jobs:
       run: dev-scripts/format.sh --check
     - name: Get Submodules
       run: git submodule update --init
-    - name: Try to get cached copy of Boost
-      id: cache-boost
-      uses: actions/cache@v3
-      with:
-        path: vendor/boost
-        key: boost_1_81_0
-    - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
-      name: Download Boost
-      run: curl -L -o boost_1_81_0.7z "https://archives.boost.io/release/1.81.0/source/boost_1_81_0.7z"
-    - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
-      name: Extract Boost
-      run: 7z -ovendor x boost_1_81_0.7z && mv vendor/boost_1_81_0 vendor/boost
     - name: Try to get cached copy of cmake
       id: cache-cmake
       uses: actions/cache@v3
@@ -210,18 +195,6 @@ jobs:
       run: dev-scripts/format.sh --check
     - name: Get Submodules
       run: git submodule update --init
-    - name: Try to get cached copy of Boost
-      id: cache-boost
-      uses: actions/cache@v3
-      with:
-        path: vendor\boost
-        key: boost_1_81_0
-    - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
-      name: Download Boost
-      run: curl -L -o boost_1_81_0.7z "https://archives.boost.io/release/1.81.0/source/boost_1_81_0.7z"
-    - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
-      name: Extract Boost
-      run: 7z -ovendor x boost_1_81_0.7z && ren vendor\boost_1_81_0 boost
     - name: Try to get cached copy of cmake
       id: cache-cmake
       uses: actions/cache@v3
@@ -234,9 +207,8 @@ jobs:
     - if: ${{ steps.cache-cmake.outputs.cache-hit != 'true' }}
       name: Extract Cmake
       run: 7z -ovendor x "cmake-3.31.6-windows-x86_64.zip" && ren vendor\cmake-3.31.6-windows-x86_64 cmake
-    # This is the earliest point at which we can do linting: clippy will end up
-    # building dynarmic, which needs Boost, but we don't need LLVM until
-    # building tests.
+    # This is the earliest point at which we can do linting: we don't need
+    # LLVM until building tests.
     - name: Lint
       shell: bash # no command output without this
       run: dev-scripts/lint.sh

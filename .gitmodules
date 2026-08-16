@@ -2,9 +2,6 @@
 	path = vendor/stb
 	url = https://github.com/nothings/stb.git
 	branch = dev
-[submodule "dynarmic"]
-	path = vendor/dynarmic
-	url = https://github.com/touchHLE/dynarmic.git
 [submodule "openal-soft"]
 	path = vendor/openal-soft
 	url = https://github.com/kcat/openal-soft

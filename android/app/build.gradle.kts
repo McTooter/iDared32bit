@@ -61,12 +61,16 @@ android {
             ndkBuild {
                 arguments("APP_PLATFORM=android-21")
                 // abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
-                // Only 'arm64-v8a' and 'x86_64' are supported by dynarmic
-                // and hence touchHLE. The 'x86_64' build works, but the main
-                // use for that would be the emulator in Android Studio, and
-                // its OpenGL ES implementations don't seem to work properly
-                // with touchHLE, so we disable it to reduce build time and
-                // avoid shipping stuff we haven't meaningfully tested.
+                // touchHLE's CPU emulation backend is now an interpreter
+                // derived from mGBA's, in portable C with no host-architecture-
+                // specific code generation, so unlike with the Dynarmic-based
+                // backend, all four ABIs above should work in principle. The
+                // 'x86_64' build works, but the main use for that would be
+                // the emulator in Android Studio, and its OpenGL ES
+                // implementations don't seem to work properly with touchHLE,
+                // so we disable it to reduce build time and avoid shipping
+                // stuff we haven't meaningfully tested. The others remain
+                // untested for now too.
                 // Make sure this matches the cargoNdk targets below.
                 abiFilters("arm64-v8a")
             }

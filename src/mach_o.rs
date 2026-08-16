@@ -259,21 +259,32 @@ impl MachO {
         let (header, commands) = match file {
             OFile::MachFile { header, commands } => (header, commands),
             OFile::FatFile { files, .. } => {
+                // Prefer the newest slice the CPU core runs, as a device
+                // would: ARMv7s (the iPhone 5's, which adds VFPv4's fused
+                // multiply-accumulates, half-precision conversions and
+                // integer divide to ARMv7), then ARMv7, then ARMv6. Any
+                // other ARM slice comes last.
+                fn slice_rank(subtype: mach_object::cpu_subtype_t) -> u8 {
+                    match subtype {
+                        mach_object::CPU_SUBTYPE_ARM_V7S => 3,
+                        mach_object::CPU_SUBTYPE_ARM_V7 => 2,
+                        mach_object::CPU_SUBTYPE_ARM_V6 => 1,
+                        _ => 0,
+                    }
+                }
+
                 let mut best_subslice = None;
-                let mut best_type = None;
+                let mut best_rank = None;
                 for (arch, _) in files {
                     if arch.cputype != mach_object::CPU_TYPE_ARM {
                         continue;
                     }
-                    if arch.cpusubtype == mach_object::CPU_SUBTYPE_ARM_V7
-                        || (arch.cpusubtype == mach_object::CPU_SUBTYPE_ARM_V6
-                            && best_type != Some(mach_object::CPU_SUBTYPE_ARM_V7))
-                        || best_type.is_none()
-                    {
+                    let rank = slice_rank(arch.cpusubtype);
+                    if best_rank.is_none_or(|best_rank| rank > best_rank) {
                         best_subslice = Some(
                             &bytes[arch.offset as usize..arch.offset as usize + arch.size as usize],
                         );
-                        best_type = Some(arch.cpusubtype);
+                        best_rank = Some(rank);
                     }
                 }
                 return if let Some(subslice) = best_subslice {

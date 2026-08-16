@@ -232,9 +232,10 @@ pub struct Mem {
     /// One advantage of `[u8; 1 << 32]` over `[u8]` is that it might help rustc
     /// optimize away bounds checks for `memory.bytes[ptr_32bit as usize]`.
     ///
-    /// Note that unless direct memory access is disabled, the CPU emulation
-    /// (dynarmic) accesses memory via this pointer directly except when a page
-    /// fault occurs.
+    /// Note that the CPU backend accesses memory via this pointer directly
+    /// rather than through [Mem::read]/[Mem::write]: always for instruction
+    /// fetch, and, unless direct access is disabled, for data outside the
+    /// null page.
     bytes: *mut Bytes,
 
     /// The size of the __PAGE_ZERO segment, where pointer accesses are trapped
