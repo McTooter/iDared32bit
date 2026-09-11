@@ -54,31 +54,116 @@ fn get_macos_bundled_resources_path() -> Option<PathBuf> {
 /// Abstraction over a platform-specific type for accessing a resource bundled
 /// with touchHLE.
 pub struct ResourceFile {
+    inner: ResourceFileInner,
+}
+enum ResourceFileInner {
     #[cfg(target_os = "android")]
-    file: sdl2::rwops::RWops<'static>,
+    Asset(sdl2::rwops::RWops<'static>),
+    // Embedded, not shipped loose: Apple's validator rejects any Mach-O
+    // file it finds in the bundle outside the app's own executable.
+    #[cfg(target_os = "ios")]
+    Embedded(std::io::Cursor<&'static [u8]>),
     #[cfg(not(target_os = "android"))]
-    file: std::fs::File,
+    Disk(std::fs::File),
+}
+impl Read for ResourceFileInner {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            #[cfg(target_os = "android")]
+            Self::Asset(f) => f.read(buf),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(c) => c.read(buf),
+            #[cfg(not(target_os = "android"))]
+            Self::Disk(f) => f.read(buf),
+        }
+    }
+}
+impl Seek for ResourceFileInner {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        match self {
+            #[cfg(target_os = "android")]
+            Self::Asset(f) => f.seek(pos),
+            #[cfg(target_os = "ios")]
+            Self::Embedded(c) => c.seek(pos),
+            #[cfg(not(target_os = "android"))]
+            Self::Disk(f) => f.seek(pos),
+        }
+    }
+}
+#[cfg(target_os = "ios")]
+fn embedded_dylib_bytes(path: &str) -> Option<&'static [u8]> {
+    match path {
+        "touchHLE_dylibs/libgcc_s.1.dylib" => Some(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/touchHLE_dylibs/libgcc_s.1.dylib"
+            ))
+            .as_slice(),
+        ),
+        "touchHLE_dylibs/libsqlite3.dylib" => Some(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/touchHLE_dylibs/libsqlite3.dylib"
+            ))
+            .as_slice(),
+        ),
+        "touchHLE_dylibs/libstdc++.6.0.9.dylib" => Some(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/touchHLE_dylibs/libstdc++.6.0.9.dylib"
+            ))
+            .as_slice(),
+        ),
+        "touchHLE_dylibs/libxml2.2.dylib" => Some(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/touchHLE_dylibs/libxml2.2.dylib"
+            ))
+            .as_slice(),
+        ),
+        "touchHLE_dylibs/libz.1.2.3.dylib" => Some(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/touchHLE_dylibs/libz.1.2.3.dylib"
+            ))
+            .as_slice(),
+        ),
+        _ => None,
+    }
 }
 impl ResourceFile {
     pub fn open(path: &str) -> Result<Self, String> {
-        Ok(Self {
-            // On Android, these resources are included as "assets" within the
-            // APK. We access them via SDL2's wrapper of Android's assets API.
-            #[cfg(target_os = "android")]
-            file: sdl2::rwops::RWops::from_file(path, "r")?,
+        #[cfg(target_os = "ios")]
+        if let Some(bytes) = embedded_dylib_bytes(path) {
+            return Ok(Self {
+                inner: ResourceFileInner::Embedded(std::io::Cursor::new(bytes)),
+            });
+        }
 
-            // On other OSes, resources are accessed as ordinary files.
-            #[cfg(not(target_os = "android"))]
-            file: {
-                let base_path = get_macos_bundled_resources_path();
-                // When not in a bundle, look in the current directory.
-                let path = base_path.as_deref().unwrap_or(Path::new(".")).join(path);
-                std::fs::File::open(path).map_err(|e| e.to_string())?
+        Ok(Self {
+            inner: {
+                // On Android, these resources are included as "assets" within
+                // the APK. We access them via SDL2's wrapper of Android's
+                // assets API.
+                #[cfg(target_os = "android")]
+                {
+                    ResourceFileInner::Asset(sdl2::rwops::RWops::from_file(path, "r")?)
+                }
+
+                // On other OSes (and for non-embedded resources on iOS),
+                // resources are accessed as ordinary files.
+                #[cfg(not(target_os = "android"))]
+                {
+                    let base_path = get_macos_bundled_resources_path();
+                    // When not in a bundle, look in the current directory.
+                    let path = base_path.as_deref().unwrap_or(Path::new(".")).join(path);
+                    ResourceFileInner::Disk(std::fs::File::open(path).map_err(|e| e.to_string())?)
+                }
             },
         })
     }
     pub fn get(&mut self) -> &mut (impl Read + Seek) {
-        &mut self.file
+        &mut self.inner
     }
 }
 impl std::fmt::Debug for ResourceFile {
