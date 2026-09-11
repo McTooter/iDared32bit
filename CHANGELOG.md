@@ -47,6 +47,7 @@ Other:
 
 - Replaced the Dynarmic-based JIT CPU emulation backend with an ARM interpreter derived from [mGBA](https://github.com/mgba-emu/mgba)'s, vendored in `vendor/mgba_arm/` and extended from ARMv4T to ARMv7-A, Thumb-2 included, with VFPv3 (flush-to-zero, rounding modes and short vectors included) and Advanced SIMD (NEON), plus the armv7s additions (VFPv4 fused multiply-add, half-precision conversions and integer divide). Fat binaries' armv7s slices are now preferred, then armv7, then armv6. mGBA is licensed under the MPL-2.0, like touchHLE.
 - Replaced OpenAL Soft with a built-in software audio mixer that outputs through SDL's audio subsystem. touchHLE's guest-facing `OpenAL.framework` and its Audio Toolbox playback (Audio Queue, Audio Services, Audio Unit) are now backed by this mixer instead of the OpenAL Soft C library, so OpenAL Soft is no longer a dependency or a submodule (`vendor/openal-soft/`).
+- Distributed binaries are now licensed under the MPL-2.0.
 
 ## v0.2.3 (2026-01-02)
 

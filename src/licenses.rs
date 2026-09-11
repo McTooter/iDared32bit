@@ -5,23 +5,48 @@
  */
 //! Prints copyright, authorship and license information.
 
+const IDARED_FORK_NOTICE: &str = "
+iDared 32bit is a fork of touchHLE, with a few differences in this build:
+
+  - CPU emulation uses an ARM interpreter derived from mGBA's (replaces
+    Dynarmic JIT)
+  - The guest-facing OpenAL uses SDL audio (replaces OpenAL Soft library)
+
+The maintainer (@apexad) is a touchHLE contributor, and this build
+includes some commits that may still be pending review for touchHLE's trunk.
+
+Source code for iDared 32bit, including the version of touchHLE it is based
+on, is available at <https://github.com/iDared32bit-emu/iDared32bit-emu>.
+
+The copyright, authorship and license information below applies to iDared 32bit
+in full.
+";
+
 const MAIN_COPYRIGHT: &str = "
+iDared 32bit © 2026 iDared 32bit project contributors.
+
 touchHLE © 2023–2026 touchHLE project contributors.
 ";
 
 const MAIN_LICENSE: &str = "
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This program, iDared 32bit, is licensed under the Mozilla Public License,
+version 2.0 (MPL-2.0). You can obtain a copy of the license at
+<https://mozilla.org/MPL/2.0/>, and the source code at the address given
+above.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+This executable is not licensed under the GNU General Public License (GPL).
+Its own code, and every library compiled into it, is licensed under MPL-2.0 or
+under more permissive terms, as listed below. None of it is GPL-licensed.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+Under the MPL-2.0, this program is provided on an \"as is\" basis, without
+warranty of any kind; see sections 6 and 7 of the license.
+
+Separately from the program itself, it carries copies of the libgcc and
+libstdc++ libraries from Apple's iPhone OS SDK, which apps running inside the
+emulated device link against. They are separate programs, licensed under the
+GNU GPL version 2 or later. They run only inside the emulated device, are not
+linked with iDared 32bit, and do not change its license. Their license notices,
+and a written offer for their source code, are included with this program.
 ";
 
 // See android/app/src/main/java/org/touchhle/android/DocumentsProvider.kt
@@ -44,11 +69,13 @@ and licensed as follows:
 const RUST_DEPENDENCIES: &str = include_str!(concat!(env!("OUT_DIR"), "/rust_dependencies.txt"));
 
 const MGBA_DESCRIPTION: &str = "
-touchHLE, and therefore this executable, incorporates a modified copy of
+iDared 32bit, and therefore this executable, incorporates a modified copy of
 the ARM interpreter from the mGBA Game Boy Advance emulator (in
 vendor/mgba_arm/), which this build extends from ARMv4T to ARMv7s.
 mGBA is copyright © 2013–2024 Jeffrey Pfau, and is available under the Mozilla
 Public License, version 2.0 -- the same license as the rest of this program.
+The modified source files are published with the rest of iDared 32bit's source
+code (see above).
 ";
 
 const SDL2_DESCRIPTION: &str = "
@@ -95,46 +122,59 @@ const PVRTD_LICENSE: &str = include_str!(concat!(
 
 const EXTERNAL_FILES_CAVEAT: &str = "
 The following authorship, copyright and license information relates to this
-touchHLE executable. Please note that different licensing terms apply to source
-files and to the bundled dynamic libraries (in touchHLE_dylibs/) and fonts (in
-touchHLE_fonts/). Please consult the respective files/directories for more
-information.
+executable. Please note that different licensing terms apply to the bundled
+dynamic libraries (in touchHLE_dylibs/) and fonts (in touchHLE_fonts/). Please
+consult the respective directories for more information.
 ";
 
 // When resource files are bundled with touchHLE in such a way that only
 // touchHLE can read the license file, use these notices.
 
-// Apple is mentioned because the GPLv2 allows repeating the original source
-// code offer when non-commercially redistributing binaries.
+// Apple's own offer is reproduced below for provenance, but GPLv2 3(c) only
+// allows passing it along for noncommercial distribution, so this build makes
+// its own 3(b) offer.
 const INTERNAL_FSF_DYLIBS_DESCRIPTION: &str = "
-This distribution of touchHLE includes binaries for the libgcc and libstdc++
+This distribution of iDared 32bit includes binaries for the libgcc and libstdc++
 libraries from the Free Software Foundation, as originally distributed by Apple:
 ";
 
+const INTERNAL_FSF_DYLIBS_OFFER: &str = "
+Written offer, valid for three years from the date you received this
+distribution: on request, the maintainer of iDared 32bit will give any third
+party a complete machine-readable copy of the corresponding source code for
+the libgcc and libstdc++ binaries included here, for no more than the cost of
+performing the distribution. That source is also published at:
+
+  libgcc    <https://github.com/iDared32bit-emu/gcc> (tag gcc-5664)
+  libstdc++ <https://github.com/iDared32bit-emu/libstdcxx> (tag libstdcxx-39)
+
+Requests: admin@idared32bit-emu.com
+";
+
 const INTERNAL_ZLIB_DYLIB_DESCRIPTION: &str = "
-This distribution of touchHLE includes binaries for zlib (libz), available under
+This distribution of iDared 32bit includes binaries for zlib (libz), available under
 the following license:
 ";
 
 // We have a COPYING file for SQLite, but as the main source and resulting
 // binary are simply Public Domain, we can save some space here.
 const INTERNAL_SQLITE3_DYLIB_DESCRIPTION: &str = "
-This distribution of touchHLE includes binaries for SQLite (libsqlite3),
+This distribution of iDared 32bit includes binaries for SQLite (libsqlite3),
 available under Public Domain.
 ";
 
 const INTERNAL_XML2_DYLIB_DESCRIPTION: &str = "
-This distribution of touchHLE includes binaries for libxml2, available under
+This distribution of iDared 32bit includes binaries for libxml2, available under
 the following license:
 ";
 
 const INTERNAL_LIBERATION_FONTS_DESCRIPTION: &str = "
-This distribution of touchHLE includes Liberation Sans fonts, available under
+This distribution of iDared 32bit includes Liberation Sans fonts, available under
 the following license:
 ";
 
 const INTERNAL_NOTO_FONTS_DESCRIPTION: &str = "
-This distribution of touchHLE includes Noto Sans CJK fonts, available under the
+This distribution of iDared 32bit includes Noto Sans CJK fonts, available under the
 following license:
 ";
 
@@ -156,6 +196,8 @@ fn divider(out: &mut String) -> Result<(), std::fmt::Error> {
 
 fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std::fmt::Error> {
     use std::fmt::Write;
+    writeln!(out, "{IDARED_FORK_NOTICE}")?;
+    divider(out)?;
     if resources_are_external_files {
         writeln!(out, "{EXTERNAL_FILES_CAVEAT}")?;
         divider(out)?;
@@ -200,6 +242,7 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
                 .replace("\n> ", "\n")
                 .trim_start()
         )?;
+        writeln!(out, "{INTERNAL_FSF_DYLIBS_OFFER}")?;
         divider(out)?;
         writeln!(out, "{INTERNAL_ZLIB_DYLIB_DESCRIPTION}")?;
         writeln!(

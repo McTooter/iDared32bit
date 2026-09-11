@@ -265,8 +265,8 @@ const CLASSES: ClassExports = objc_classes! {
     // Assert (see above).
     let _ = env.objc.borrow_mut::<AppPickerDelegateHostObject>(this);
 
-     if let Err(e) = crate::window::open_url(env, "https://touchhle.org/") {
-        echo!("Couldn't open touchHLE.org: {}", e);
+    if let Err(e) = crate::window::open_url(env, "https://iDared32bit-emu.com/") {
+        echo!("Couldn't open iDared32bit-emu.com: {}", e);
     }
 }
 
@@ -402,14 +402,14 @@ fn app_picker_inner(
         let text = ns_string::from_rust_string(
             env,
             format!(
-                "touchHLE {}{}{}",
+                "iDared 32bit {}{}{}",
                 crate::branding(),
                 if crate::branding().is_empty() {
                     ""
                 } else {
                     " "
                 },
-                crate::VERSION
+                crate::DISPLAY_VERSION
             ),
         );
         () = msg![env; label setText:text];
@@ -519,7 +519,7 @@ fn app_picker_inner(
         buttons_row2_center,
         &[
             ("Copyright info", "copyrightInfoShow"),
-            ("touchHLE.org", "visitWebsite"),
+            ("iDared 32bit Code", "visitWebsite"),
         ],
         None,
     );

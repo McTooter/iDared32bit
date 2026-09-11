@@ -409,7 +409,7 @@ impl Environment {
 
             Some(Box::new(window::Window::new(
                 &format!(
-                    "{} (touchHLE {}{}{})",
+                    "{} (iDared 32bit {}{}{})",
                     bundle.display_name(),
                     super::branding(),
                     if super::branding().is_empty() {
@@ -417,7 +417,7 @@ impl Environment {
                     } else {
                         " "
                     },
-                    super::VERSION
+                    super::DISPLAY_VERSION
                 ),
                 icon.ok(),
                 launch_image,
@@ -768,14 +768,14 @@ impl Environment {
         assert!(!options.headless);
         let window = Some(Box::new(window::Window::new(
             &format!(
-                "touchHLE {}{}{}",
+                "iDared 32bit {}{}{}",
                 super::branding(),
                 if super::branding().is_empty() {
                     ""
                 } else {
                     " "
                 },
-                super::VERSION
+                super::DISPLAY_VERSION
             ),
             Some(icon),
             launch_image,
