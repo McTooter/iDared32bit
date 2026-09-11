@@ -4,7 +4,5 @@
 <dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>This app does not use Bluetooth directly. A bundled library links Bluetooth APIs for optional Steam Controller support, but that feature is disabled.</string>
 </dict>
 </plist>
