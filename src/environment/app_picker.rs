@@ -53,13 +53,13 @@ pub fn app_picker(options: Options) -> Result<(PathBuf, Vec<String>), String> {
     let apps_dir = paths::user_data_base_path().join(paths::APPS_DIR);
 
     let apps: Result<Vec<AppInfo>, String> = if !apps_dir.is_dir() {
-        Err(format!("The {} directory couldn't be found. Check you're running touchHLE from the right directory.", apps_dir.display()))
+        Err(format!("The {} directory couldn't be found. Check you're running touchHLE from the right directory.", paths::APPS_DIR))
     } else {
         enumerate_apps(&apps_dir)
             .map_err(|err| {
                 format!(
                     "Couldn't get list of apps in the {} directory: {}.",
-                    apps_dir.display(),
+                    paths::APPS_DIR,
                     err
                 )
             })
@@ -67,7 +67,7 @@ pub fn app_picker(options: Options) -> Result<(PathBuf, Vec<String>), String> {
                 if apps.is_empty() {
                     Err(format!(
                         "No apps were found in the {} directory.",
-                        apps_dir.display()
+                        paths::APPS_DIR
                     ))
                 } else {
                     Ok(apps)
