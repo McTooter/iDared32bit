@@ -501,14 +501,18 @@ impl GLES for GLES1Native<'_> {
         pixels: *const GLvoid,
     ) {
         if format == gles11::BGRA_EXT {
-            // This is needed in order to avoid white screen issue on Android!
-            // As per BGRA extension specs
-            // https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_format_BGRA8888.txt,
-            // both internalformat and format should be BGRA
-            // Tangentially related issue
-            // (actually a reverse of what we're doing here)
-            // https://android-review.googlesource.com/c/platform/external/qemu/+/974666
-            internalformat = gles11::BGRA_EXT as GLint
+            // The two BGRA extensions disagree about internalformat, and the
+            // guest is advertised the IMG one, so it may pass either.
+            // EXT/IMG want internalformat == format (without this, Android
+            // renders a white screen); Apple's wants GL_RGBA and rejects
+            // GL_BGRA_EXT with GL_INVALID_ENUM, failing the texture upload.
+            // https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_format_BGRA8888.txt
+            // https://registry.khronos.org/OpenGL/extensions/APPLE/APPLE_texture_format_BGRA8888.txt
+            internalformat = if matches!(std::env::consts::OS, "ios" | "ios-sim") {
+                gles11::RGBA as GLint
+            } else {
+                gles11::BGRA_EXT as GLint
+            };
         }
         gles11::TexImage2D(
             target,
