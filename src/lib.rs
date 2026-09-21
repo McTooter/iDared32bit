@@ -62,16 +62,11 @@ use std::path::PathBuf;
 
 pub use touchHLE_version::*;
 
-/// This is the true entry point on Android (SDLActivity calls it after
-/// initialization). On other platforms the true entry point is in src/bin.rs.
-#[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "C" fn SDL_main(
-    _argc: std::ffi::c_int,
-    _argv: *const *const std::ffi::c_char,
-) -> std::ffi::c_int {
-    // Rust's default panic handler prints to stderr, but on Android that just
-    // gets discarded, so we set a custom hook to make debugging easier.
+// Rust's default panic handler prints to stderr, but on Android and iOS
+// standalone (no debugger attached) that just gets discarded, so we set a
+// custom hook to make debugging easier.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
             s
@@ -86,6 +81,17 @@ pub extern "C" fn SDL_main(
             echo!("Panic: {}", payload);
         }
     }));
+}
+
+/// This is the true entry point on Android (SDLActivity calls it after
+/// initialization). On other platforms the true entry point is in src/bin.rs.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn SDL_main(
+    _argc: std::ffi::c_int,
+    _argv: *const *const std::ffi::c_char,
+) -> std::ffi::c_int {
+    install_panic_hook();
 
     // Empty args: brings up app picker.
     match main([String::new()].into_iter()) {
@@ -103,6 +109,8 @@ pub extern "C" fn SDL_main(
     _argc: std::ffi::c_int,
     _argv: *const *const std::ffi::c_char,
 ) -> std::ffi::c_int {
+    install_panic_hook();
+
     // Empty args: brings up app picker.
     match main([String::new()].into_iter()) {
         Ok(_) => echo!("touchHLE finished"),
