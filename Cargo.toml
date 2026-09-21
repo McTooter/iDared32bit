@@ -28,7 +28,7 @@ path = "src/bin.rs"
 
 [features]
 default = ["static"]
-static = ["sdl2/bundled", "sdl2/static-link", "touchHLE_openal_soft_wrapper/static"]
+static = ["sdl2/bundled", "sdl2/static-link"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -75,7 +75,6 @@ sdl2 = { git = "https://github.com/iDared32bit-emu/rust-sdl2", branch = "touchhl
 sdl2-sys = { git = "https://github.com/iDared32bit-emu/rust-sdl2", branch = "touchhle-ios-host" }
 touchHLE_mgba_wrapper = { path = "src/cpu/mgba_wrapper" }
 touchHLE_gl_bindings = { path = "src/gles/gl_bindings" }
-touchHLE_openal_soft_wrapper = { path = "src/audio/openal_soft_wrapper" }
 touchHLE_pvrt_decompress_wrapper = { path = "src/image/pvrt_decompress_wrapper" }
 touchHLE_stb_image_wrapper = { path = "src/image/stb_image_wrapper" }
 touchHLE_version = { path = "src/version" }

@@ -34,6 +34,15 @@ use corosensei::{Coroutine, Yielder};
 pub use mutex::{MutexId, MutexType, PTHREAD_MUTEX_DEFAULT};
 use nullable_box::NullableBox;
 
+/// SDL audio subsystem for the mixer: shares the window's context if one
+/// exists, else creates a standalone one. `None` if SDL audio is unavailable.
+fn build_audio_subsystem(window: Option<&window::Window>) -> Option<sdl2::AudioSubsystem> {
+    match window {
+        Some(w) => w.create_audio_subsystem().ok(),
+        None => sdl2::init().ok().and_then(|sdl| sdl.audio().ok()),
+    }
+}
+
 /// Index into the [Vec] of threads. Thread 0 is always the main thread.
 pub type ThreadId = usize;
 
@@ -663,12 +672,14 @@ impl Environment {
             framework_state: Default::default(),
         };
 
+        let audio_subsystem = build_audio_subsystem(window.as_deref());
+
         let mut env = Environment {
             startup_time,
             bundle: NullableBox::new(bundle),
             fs: NullableBox::new(fs),
             window,
-            openal_manager: NullableBox::new(OpenALManager::new()?),
+            openal_manager: NullableBox::new(OpenALManager::new(audio_subsystem)?),
             mem: NullableBox::new(mem),
             bins,
             objc: NullableBox::new(objc),
@@ -795,12 +806,14 @@ impl Environment {
             framework_state: Default::default(),
         };
 
+        let audio_subsystem = build_audio_subsystem(window.as_deref());
+
         let mut env = Environment {
             startup_time,
             bundle: NullableBox::new(bundle),
             fs: NullableBox::new(fs),
             window,
-            openal_manager: NullableBox::new(OpenALManager::new()?),
+            openal_manager: NullableBox::new(OpenALManager::new(audio_subsystem)?),
             mem: NullableBox::new(mem),
             bins,
             objc: NullableBox::new(objc),

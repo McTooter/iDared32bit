@@ -74,12 +74,6 @@ freely, subject to the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ";
 
-const OPENAL_SOFT: &str = "
-touchHLE, and therefore this executable, incorporates the library OpenAL Soft,
-which is available under the terms of the GNU Library Public License version 2
-or any later version.
-";
-
 const STB_IMAGE: &str = "
 touchHLE, and therefore this executable, incorporates the library stb_image,
 which is available either as Public Domain or under the terms of the MIT
@@ -182,8 +176,6 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
     divider(out)?;
     writeln!(out, "{SDL2_DESCRIPTION}")?;
     writeln!(out, "{SDL2_LICENSE}")?;
-    divider(out)?;
-    writeln!(out, "{OPENAL_SOFT}")?;
     divider(out)?;
     writeln!(out, "{STB_IMAGE}")?;
     divider(out)?;

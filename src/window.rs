@@ -1155,6 +1155,13 @@ impl Window {
         (x, y, pressed)
     }
 
+    /// Create an SDL audio subsystem from the same SDL context as the window.
+    /// This shares SDL's lifetime refcount, so the audio device and the window
+    /// keep SDL alive independently of each other.
+    pub fn create_audio_subsystem(&self) -> Result<sdl2::AudioSubsystem, String> {
+        self._sdl_ctx.audio()
+    }
+
     pub fn create_gl_context(&self, version: GLVersion) -> Result<GLContext, String> {
         let attr = self.video_ctx.gl_attr();
         match version {

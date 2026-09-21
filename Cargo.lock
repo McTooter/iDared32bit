@@ -1140,7 +1140,6 @@ dependencies = [
  "symphonia",
  "touchHLE_gl_bindings",
  "touchHLE_mgba_wrapper",
- "touchHLE_openal_soft_wrapper",
  "touchHLE_pvrt_decompress_wrapper",
  "touchHLE_stb_image_wrapper",
  "touchHLE_version",
@@ -1161,13 +1160,6 @@ name = "touchHLE_mgba_wrapper"
 version = "0.2.3"
 dependencies = [
  "cc",
-]
-
-[[package]]
-name = "touchHLE_openal_soft_wrapper"
-version = "0.2.3"
-dependencies = [
- "cmake",
 ]
 
 [[package]]
