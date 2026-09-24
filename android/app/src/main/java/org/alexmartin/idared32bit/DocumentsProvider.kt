@@ -8,7 +8,7 @@
  */
 
 //package emu.skyline.provider
-package org.touchhle.android;
+package org.alexmartin.idared32bit;
 
 import android.database.Cursor
 import android.database.MatrixCursor

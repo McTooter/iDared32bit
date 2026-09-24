@@ -45,7 +45,7 @@ android {
     }
     defaultConfig {
         val branding = getTouchHLEBranding()
-        applicationId = "org.touchhle.android"
+        applicationId = "org.alexmartin.idared32bit"
         if (!branding.isEmpty()) {
             applicationIdSuffix = branding.lowercase()
         }
@@ -131,7 +131,7 @@ android {
     lint {
         abortOnError = false
     }
-    namespace = "org.touchhle.android"
+    namespace = "org.alexmartin.idared32bit"
 }
 
 cargoNdk {

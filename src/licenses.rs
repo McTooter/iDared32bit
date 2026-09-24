@@ -51,7 +51,7 @@ linked with iDared 32bit, and do not change its license. Their license notices,
 and a written offer for their source code, are included with this program.
 ";
 
-// See android/app/src/main/java/org/touchhle/android/DocumentsProvider.kt
+// See android/app/src/main/java/org/alexmartin/idared32bit/DocumentsProvider.kt
 #[cfg(target_os = "android")]
 const SKYLINE: &str = "
 touchHLE for Android incorporates code originally from the Skyline emulator
