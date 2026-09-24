@@ -1,12 +1,12 @@
-# touchHLE code of conduct
+# iDared 32bit code of conduct
 
 ## General
 
 Please be kind and respectful to others.
 
-It's especially important to value and respect others' time and energy: don't demand or expect anything to happen on any particular timescale, or even for anyone to do anything at all. We're all volunteers here, doing things for the love of it, and if you force us to spend a lot of time on _you_ without a good reason, it's going to slowly chip away at our passion and enthusiasm.
+Respect other people's time and energy. Don't demand or expect anything to happen on a particular timescale, or for anyone to do anything at all.
 
-I do not feel like a full-length, corporate project-style “code of conduct” is necessary here, but to be absolutely clear: trans rights 🏳️‍⚧️🏳️‍⚧️🏳️‍⚧️, racists can fuck off, etc. If someone's making you uncomfortable or worse, please don't hesitate to get in touch with me directly. In any case, I reserve the right to block anyone from the project at any time for any reason, but I promise to exercise careful judgment. Thanks. ~ hikari\_no\_yume
+Harassment, bigotry and personal attacks aren't welcome here. If someone is making you uncomfortable, or worse, please contact the maintainer ([@apexad](https://github.com/apexad)) directly. The maintainer may remove content or block people from the project when needed, and will use careful judgment in doing so.
 
 ## Piracy
 
@@ -16,4 +16,4 @@ I do not feel like a full-length, corporate project-style “code of conduct” 
 **⚠️ Do not talk about using pirated content.**<br>
 **⚠️ You _will_ be banned if you ignore this warning.**<br>
 
-These are not the only copyright rules applicable to touchHLE. Please also read the [contribution guide](CONTRIBUTING.md) if you are going to contribute code.
+These are not the only copyright rules applicable to iDared 32bit. Please also read the [contribution guide](CONTRIBUTING.md) if you are going to contribute code.
