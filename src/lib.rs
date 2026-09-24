@@ -140,7 +140,7 @@ Special options:
 
 pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     echo!(
-        "touchHLE {}{}{} — https://touchhle.org/",
+        "iDared 32bit {}{}{} — https://idared32bit-emu.com/ (based on touchHLE)",
         branding(),
         if branding().is_empty() { "" } else { " " },
         VERSION,
