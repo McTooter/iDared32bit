@@ -77,7 +77,8 @@ vendor/mgba_arm/), which this build extends from ARMv4T to ARMv7s.
 mGBA is copyright © 2013–2024 Jeffrey Pfau, and is available under the Mozilla
 Public License, version 2.0 -- the same license as the rest of this program.
 The modified source files are published with the rest of iDared 32bit's source
-code (see above).
+code (see above). iDared 32bit is not affiliated with or endorsed by the mGBA
+project.
 ";
 
 const SDL2_DESCRIPTION: &str = "

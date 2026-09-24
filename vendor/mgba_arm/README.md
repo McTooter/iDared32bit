@@ -8,6 +8,10 @@ The files as first imported are identical to those in upstream mGBA commit
 [`3a5bc24`](https://github.com/mgba-emu/mgba/commit/3a5bc24629867576b0fb576a5d5a21d3b3d6b576),
 so that commit is the base to compare this copy against.
 
+This copy is maintained as part of iDared 32bit. The mGBA project is not
+affiliated with iDared 32bit and does not endorse it, so please report problems
+with this copy to iDared 32bit, not to mGBA.
+
 It is vendored here, heavily extended, as touchHLE's CPU core, wrapped by
 `src/cpu/mgba_wrapper/`. mGBA is under the **Mozilla Public License, v.
 2.0** — the same license as touchHLE's own code — so a binary built with it is

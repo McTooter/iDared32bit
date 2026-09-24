@@ -53,6 +53,8 @@ Only use iDared 32bit to emulate software you have obtained legally.
 
 Not an official touchHLE release, and not affiliated with or endorsed by the touchHLE project — please direct questions or problems regarding iDared 32bit here, not to the touchHLE project.
 
+Not affiliated with or endorsed by the mGBA project, whose ARM interpreter iDared 32bit's CPU core is derived from — please direct questions or problems regarding iDared 32bit here, not to the mGBA project.
+
 ## Graphical user interface
 
 iDared 32bit uses the same built-in app picker as touchHLE. If you put your `.ipa` files and `.app` bundles in the `touchHLE_apps` directory, they will show up in the app picker when you run iDared 32bit. Note that the app binary must not be encrypted to be usable.
