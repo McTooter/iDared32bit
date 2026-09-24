@@ -6,8 +6,9 @@ name: Lint and test
 
 on:
   push:
-    branches: [ "iphone_new" ]
+    branches: [ "idared32bit" ]
   pull_request:
+    branches: [ "idared32bit" ]
   workflow_dispatch:
 
 env:
