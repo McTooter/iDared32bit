@@ -12,8 +12,10 @@ iDared 32bit is a fork of touchHLE, with a few differences in this build:
     Dynarmic JIT)
   - The guest-facing OpenAL uses SDL audio (replaces OpenAL Soft library)
 
-The maintainer (@apexad) is a touchHLE contributor, and this build
-includes some commits that may still be pending review for touchHLE's trunk.
+The maintainer (@apexad) contributed to touchHLE until this App Store
+release, which the touchHLE project did not want, and is no longer part of
+that project. This build includes changes that are not in touchHLE.
+iDared 32bit is not affiliated with or endorsed by the touchHLE project.
 
 Source code for iDared 32bit, including the version of touchHLE it is based
 on, is available at <https://github.com/iDared32bit-emu/iDared32bit>.

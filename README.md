@@ -1,21 +1,28 @@
-# iDared 32bit
+# <img src="https://idared32bit-emu.com/idared32bit-icon.png" alt="iDared 32bit icon" width="48" height="48"> iDared 32bit
 
 **iDared 32bit** runs classic 32-bit iPhone OS apps and games on modern iPhones and iPads.
 
 It is a fork of **[touchHLE](https://github.com/touchHLE/touchHLE)**, a high-level emulator for early iPhone OS apps, packaged as a native iOS app.
 The emulation is touchHLE's work; this fork adds the iOS host and the build-specific changes noted below.
 
+Website (including the privacy policy): <https://idared32bit-emu.com/>
+
 ## What's different in this build
 
 - **iOS host app** which runs as a native app on iPhone and iPad.
 - **An interpreter instead of Dynarmic** for CPU emulation. The CPU core is an ARM interpreter derived from [mGBA](https://github.com/mgba-emu/mgba)'s, extended from ARMv4T to ARMv7s, with Thumb-2, VFPv3/VFPv4 and NEON. The only code run by the [emulated CPU](vendor/mgba_arm/) is the app binary and [a handful of libraries](touchHLE_dylibs/).
 - **OpenAL via SDL Audio** for the guest-facing `OpenAL.framework` and Audio Toolbox playback, instead of the OpenAL Soft C library.
-- **Includes unmerged upstream work** — the maintainer ([@apexad](https://github.com/apexad)) is a touchHLE contributor, and this build includes pending commits that enable some games not yet supported upstream, such as *DOA Blackjack*.
+- **Changes not in upstream touchHLE** — the maintainer ([@apexad](https://github.com/apexad)) contributed to touchHLE until this App Store release, which the touchHLE project did not want, and is no longer part of that project. This build includes changes, some originally written for touchHLE, that enable games not supported upstream.
 
 ## Based on touchHLE
 
+For reference only:
+
 - Upstream project: <https://github.com/touchHLE/touchHLE>
-- Website, downloads, FAQ: <https://touchhle.org/>
+- touchHLE's website: <https://touchhle.org/>
+- touchHLE app compatibility database: <https://appdb.touchhle.org/>
+
+These belong to touchHLE, not iDared 32bit. **Do not ask touchHLE for support with iDared 32bit, and do not submit iDared 32bit app compatibility results to touchHLE's website or its app compatibility database.** Please bring questions, problems and compatibility reports for iDared 32bit here instead.
 
 The goal of this project is to run games from the early days of iOS:
 
@@ -23,9 +30,9 @@ The goal of this project is to run games from the early days of iOS:
 * Longer term: iOS 4.x, and beyond.
 * [Never](https://github.com/touchHLE/touchHLE/issues/181#issuecomment-1777098259): 64-bit iOS.
 
-**This does not mean that all apps for these OS versions work.** The vast majority of iPhone OS 2.x and iPhone OS 3.x apps do not currently work in touchHLE, and the ones that do work are generally games (support for other apps isn't a priority: it's more complex and less fun). This improves gradually over time with contributions from various developers. The [touchHLE app compatibility database](https://appdb.touchhle.org/) tracks which apps work in touchHLE; it is a crowdsourced effort to which anyone can contribute. **We don't take requests, so please do not ask us to support your favourite game.**
+**This does not mean that all apps for these OS versions work.** The vast majority of iPhone OS 2.x and iPhone OS 3.x apps do not currently work in touchHLE or iDared 32bit, and the ones that do work are generally games (support for other apps isn't a priority: it's more complex and less fun). This improves gradually over time with contributions from various developers. touchHLE's app compatibility database tracks touchHLE only; it does not cover iDared 32bit. **We don't take requests, so please do not ask us to support your favourite game.**
 
-Because iDared 32bit uses a different CPU backend, SDL-based audio, iOS-specific changes, and additional maintainer changes that may still be pending review upstream, compatibility may differ from touchHLE. Some games that work in touchHLE may not work in iDared 32bit, and vice versa.
+Because iDared 32bit uses a different CPU backend, SDL-based audio, iOS-specific changes, and additional maintainer changes that are not in upstream touchHLE, compatibility may differ from touchHLE. Some games that work in touchHLE may not work in iDared 32bit, and vice versa.
 
 ## Platform support
 
@@ -44,7 +51,7 @@ This project is not affiliated with or endorsed by Apple Inc in any way. iPhone,
 
 Only use iDared 32bit to emulate software you have obtained legally.
 
-Not an official touchHLE release — please direct questions regarding the iOS version here, not to the touchHLE project.
+Not an official touchHLE release, and not affiliated with or endorsed by the touchHLE project — please direct questions or problems regarding iDared 32bit here, not to the touchHLE project.
 
 ## Graphical user interface
 
