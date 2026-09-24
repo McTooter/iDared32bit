@@ -16,7 +16,7 @@ The maintainer (@apexad) is a touchHLE contributor, and this build
 includes some commits that may still be pending review for touchHLE's trunk.
 
 Source code for iDared 32bit, including the version of touchHLE it is based
-on, is available at <https://github.com/iDared32bit-emu/iDared32bit-emu>.
+on, is available at <https://github.com/iDared32bit-emu/iDared32bit>.
 
 The copyright, authorship and license information below applies to iDared 32bit
 in full.
