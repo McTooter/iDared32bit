@@ -356,7 +356,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = /opt/homebrew/opt/boost;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -414,7 +413,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = /opt/homebrew/opt/boost;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -437,10 +435,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				EXCLUDED_SOURCE_FILE_NAMES = "*.dylib";
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					/opt/homebrew/opt/boost,
-					../vendor/SDL/include,
-				);
+				HEADER_SEARCH_PATHS = ../vendor/SDL/include;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iDared 32bit";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -476,10 +471,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				EXCLUDED_SOURCE_FILE_NAMES = "*.dylib";
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					/opt/homebrew/opt/boost,
-					../vendor/SDL/include,
-				);
+				HEADER_SEARCH_PATHS = ../vendor/SDL/include;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iDared 32bit";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -557,7 +549,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = /opt/homebrew/opt/boost;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -578,10 +569,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					/opt/homebrew/opt/boost,
-					../vendor/SDL/include,
-				);
+				HEADER_SEARCH_PATHS = ../vendor/SDL/include;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iDared 32bit";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
