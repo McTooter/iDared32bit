@@ -250,8 +250,11 @@ const CLASSES: ClassExports = objc_classes! {
             if let Err(e) = url_res {
                 echo!("Couldn't open file manager at {:?}: {}", url, e);
             } else {
-                echo!("Opened file manager at {:?}, exiting.", url);
-                std::process::exit(0);
+                echo!("Opened file manager at {:?}.", url);
+                if std::env::consts::OS != "ios" {
+                    echo!("Exiting.");
+                    std::process::exit(0);
+                }
             }
         },
         Err(e) => echo!("Couldn't open file manager: {}", e),

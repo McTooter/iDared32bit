@@ -138,7 +138,7 @@ pub fn user_data_base_path() -> Cow<'static, Path> {
         }
         Cow::from(Path::new(std::ffi::CStr::from_ptr(path).to_str().unwrap()))
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         // When touchHLE is run from a .app bundle on macOS, the user might not
         // be able to control the current directory, so user data needs to go in
@@ -149,6 +149,25 @@ pub fn user_data_base_path() -> Cow<'static, Path> {
             ));
         }
         Cow::from(Path::new("."))
+    }
+
+    #[cfg(target_os = "ios")]
+    {
+        let mut pref_path =
+            PathBuf::from(sdl2::filesystem::pref_path("touchhle.org", "touchHLE").unwrap());
+
+        // touchHLE
+        pref_path.pop();
+        // touchhle.org
+        pref_path.pop();
+        // Application Support
+        pref_path.pop();
+        // Library
+        pref_path.pop();
+
+        pref_path.push("Documents");
+
+        return Cow::from(pref_path);
     }
 }
 
@@ -164,21 +183,33 @@ pub fn url_for_opening_user_data_dir() -> Result<String, String> {
             brand.to_lowercase()
         ))
     } else {
-        let path = user_data_base_path()
-            .join(".")
-            .canonicalize()
-            .map_err(|e| format!("Can't canonicalize path to user data directory: {e}"))?;
-        let path = path
+        let path_buf;
+        let path = if cfg!(target_os = "ios") {
+            user_data_base_path()
+        } else {
+            path_buf = user_data_base_path()
+                .join(".")
+                .canonicalize()
+                .map_err(|e| format!("Can't canonicalize path to user data directory: {e}"))?;
+            Cow::from(path_buf)
+        };
+
+        let path_str = path
             .to_str()
             .ok_or_else(|| "User data directory path is not UTF-8".to_string())?;
-        // std::fs::canonicalize() on Windows uses the extended-length path
-        // syntax, but Windows Explorer doesn't understand it.
-        let path = if std::env::consts::OS == "windows" {
-            path.strip_prefix("\\\\?\\").unwrap_or(path)
+
+        if cfg!(target_os = "ios") {
+            Ok(format!("shareddocuments://{path_str}"))
         } else {
-            path
-        };
-        Ok(format!("file://{path}"))
+            // std::fs::canonicalize() on Windows uses the extended-length path
+            // syntax, but Windows Explorer doesn't understand it.
+            let path_str = if std::env::consts::OS == "windows" {
+                path_str.strip_prefix("\\\\?\\").unwrap_or(path_str)
+            } else {
+                path_str
+            };
+            Ok(format!("file://{path_str}"))
+        }
     }
 }
 
@@ -186,7 +217,10 @@ pub fn url_for_opening_user_data_dir() -> Result<String, String> {
 /// doesn't exist, and populate it with templates or README files. (On other
 /// platforms these are simply bundled with touchHLE in a ZIP file.)
 pub fn prepopulate_user_data_dir() {
-    if std::env::consts::OS != "android" && std::env::consts::OS != "macos" {
+    if std::env::consts::OS != "android"
+        && std::env::consts::OS != "macos"
+        && std::env::consts::OS != "ios"
+    {
         return;
     }
     let base_path = user_data_base_path();

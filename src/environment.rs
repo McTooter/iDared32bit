@@ -1291,13 +1291,19 @@ impl Environment {
             }
         });
         loop {
+            if let Some(w) = self.window.as_mut() {
+                w.on_main_stack = false;
+            }
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 app_picker_coroutine.resume(self)
             }));
             self = match res {
                 Ok(ret) => match ret {
                     corosensei::CoroutineResult::Yield(env) => env,
-                    corosensei::CoroutineResult::Return((ret_val, _env)) => {
+                    corosensei::CoroutineResult::Return((ret_val, mut env)) => {
+                        if let Some(w) = env.window.as_mut() {
+                            w.on_main_stack = true;
+                        }
                         return ret_val;
                     }
                 },
@@ -1309,6 +1315,9 @@ impl Environment {
                 }
             };
 
+            if let Some(w) = self.window.as_mut() {
+                w.on_main_stack = true;
+            }
             self.window
                 .as_mut()
                 .unwrap()

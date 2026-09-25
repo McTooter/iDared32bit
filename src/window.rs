@@ -1437,7 +1437,95 @@ impl Window {
     }
 }
 
+#[cfg(target_os = "ios")]
+fn open_url_host_ios(url: &str) -> Result<(), String> {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_void};
+
+    #[link(name = "objc")]
+    extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    unsafe {
+        let ns_url_class = objc_getClass(b"NSURL\0".as_ptr() as *const _);
+        let ns_string_class = objc_getClass(b"NSString\0".as_ptr() as *const _);
+        let ui_application_class = objc_getClass(b"UIApplication\0".as_ptr() as *const _);
+        let ns_dictionary_class = objc_getClass(b"NSDictionary\0".as_ptr() as *const _);
+
+        if ns_url_class.is_null()
+            || ns_string_class.is_null()
+            || ui_application_class.is_null()
+            || ns_dictionary_class.is_null()
+        {
+            return Err("Couldn't find required Objective-C classes".to_string());
+        }
+
+        let url_cstr = CString::new(url).map_err(|e| e.to_string())?;
+
+        let objc_msgSend_ptr = objc_msgSend as unsafe extern "C" fn();
+
+        let sel_string_with_utf8 =
+            sel_registerName(b"stringWithUTF8String:\0".as_ptr() as *const _);
+        let ns_string = (std::mem::transmute::<
+            _,
+            unsafe extern "C" fn(*mut c_void, *mut c_void, *const c_char) -> *mut c_void,
+        >(objc_msgSend_ptr))(
+            ns_string_class, sel_string_with_utf8, url_cstr.as_ptr()
+        );
+
+        let sel_url_with_string = sel_registerName(b"URLWithString:\0".as_ptr() as *const _);
+        let ns_url = (std::mem::transmute::<
+            _,
+            unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> *mut c_void,
+        >(objc_msgSend_ptr))(ns_url_class, sel_url_with_string, ns_string);
+
+        if ns_url.is_null() {
+            return Err(format!("Couldn't create NSURL from {:?}", url));
+        }
+
+        let sel_shared_application = sel_registerName(b"sharedApplication\0".as_ptr() as *const _);
+        let ui_app = (std::mem::transmute::<
+            _,
+            unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void,
+        >(objc_msgSend_ptr))(ui_application_class, sel_shared_application);
+
+        if ui_app.is_null() {
+            return Err("Couldn't get shared UIApplication".to_string());
+        }
+
+        let sel_dictionary = sel_registerName(b"dictionary\0".as_ptr() as *const _);
+        let empty_dict = (std::mem::transmute::<
+            _,
+            unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void,
+        >(objc_msgSend_ptr))(ns_dictionary_class, sel_dictionary);
+
+        let sel_open_url =
+            sel_registerName(b"openURL:options:completionHandler:\0".as_ptr() as *const _);
+        (std::mem::transmute::<
+            _,
+            unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, *mut c_void),
+        >(objc_msgSend_ptr))(
+            ui_app,
+            sel_open_url,
+            ns_url,
+            empty_dict,
+            std::ptr::null_mut(),
+        );
+
+        Ok(())
+    }
+}
+
 pub fn open_url(env: &mut Environment, url: &str) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        env.on_parent_stack_in_coroutine(|_, _| open_url_host_ios(url))
+    }
+
+    #[cfg(not(target_os = "ios"))]
     env.on_parent_stack_in_coroutine(|_, _| sdl2::url::open_url(url).map_err(|e| e.to_string()))
 }
 
@@ -1479,7 +1567,17 @@ pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
                 // Open data directory (contains log file on android)
                 0 => match crate::paths::url_for_opening_user_data_dir() {
                     Ok(url) => {
-                        if let Err(e) = sdl2::url::open_url(&url).map_err(|e| e.to_string()) {
+                        let res = {
+                            #[cfg(target_os = "ios")]
+                            {
+                                open_url_host_ios(&url)
+                            }
+                            #[cfg(not(target_os = "ios"))]
+                            {
+                                sdl2::url::open_url(&url).map_err(|e| e.to_string())
+                            }
+                        };
+                        if let Err(e) = res {
                             echo!("Couldn't open file manager at {:?}: {}", url, e);
                         } else {
                             echo!("Opened file manager at {:?}, exiting.", url);
