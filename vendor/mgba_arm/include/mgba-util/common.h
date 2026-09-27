@@ -37,6 +37,47 @@
 #define ATTRIBUTE_NOINLINE
 #define LIKELY(X) (X)
 #define UNLIKELY(X) (X)
+
+#ifdef _MSC_VER
+#include <intrin.h>
+#include <stdlib.h>
+#define __builtin_bswap32 _byteswap_ulong
+#else
+static inline uint32_t touchhle_bswap32(uint32_t x) {
+	return ((x & 0x000000FFu) << 24) |
+	       ((x & 0x0000FF00u) << 8)  |
+	       ((x & 0x00FF0000u) >> 8)  |
+	       ((x & 0xFF000000u) >> 24);
+}
+#define __builtin_bswap32 touchhle_bswap32
+#endif
+
+static inline int touchhle_clz(unsigned int x) {
+#ifdef _MSC_VER
+	unsigned long index;
+	if (_BitScanReverse(&index, (unsigned long) x)) {
+		return 31 - (int) index;
+	}
+	return 32;
+#else
+	int n = 0;
+	if (x == 0) return 32;
+	if ((x & 0xFFFF0000u) == 0) { n += 16; x <<= 16; }
+	if ((x & 0xFF000000u) == 0) { n += 8;  x <<= 8;  }
+	if ((x & 0xF0000000u) == 0) { n += 4;  x <<= 4;  }
+	if ((x & 0xC0000000u) == 0) { n += 2;  x <<= 2;  }
+	if ((x & 0x80000000u) == 0) { n += 1; }
+	return n;
+#endif
+}
+#define __builtin_clz touchhle_clz
+
+static inline int touchhle_popcount(unsigned int x) {
+	x = x - ((x >> 1) & 0x55555555);
+	x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
+	return (int) ((((x + (x >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24);
+}
+#define __builtin_popcount touchhle_popcount
 #endif
 
 #define ROR(I, ROTATE)                                                         \
