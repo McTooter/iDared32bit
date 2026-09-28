@@ -1312,6 +1312,8 @@ impl Window {
         // relies on that same context still being current when we swap. SDL's
         // iOS swapBuffers already re-asserts the current view's context and
         // rebinds its renderbuffer internally, so no rebind is needed here.
+        // That rebind changes the current context's renderbuffer binding,
+        // though, so the fast path restores the app's afterwards.
         self.window.gl_swap_window();
     }
 

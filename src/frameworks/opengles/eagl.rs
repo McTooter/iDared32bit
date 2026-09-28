@@ -850,4 +850,10 @@ unsafe fn present_renderbuffer(env: &mut Environment, _context: id) {
     // Restore the other bindings
     gles.BindTexture(gles11::TEXTURE_2D, old_texture_2d);
     gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, old_framebuffer);
+    // On iOS, SDL's swap binds its view's own renderbuffer in the current
+    // context, which is the app's here, before presenting it. Apps often bind
+    // their color renderbuffer once and then just call presentRenderbuffer:
+    // every frame, so if it isn't rebound, every later present finds SDL's
+    // renderbuffer bound, is rejected, and the screen stays black.
+    gles.BindRenderbufferOES(gles11::RENDERBUFFER_OES, renderbuffer);
 }
