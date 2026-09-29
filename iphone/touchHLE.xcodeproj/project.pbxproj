@@ -432,7 +432,6 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = touchHLE/touchHLE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				EXCLUDED_SOURCE_FILE_NAMES = "*.dylib";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ../vendor/SDL/include;
@@ -452,7 +451,6 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
-				MARKETING_VERSION = 1.2.23;
 				PRODUCT_BUNDLE_IDENTIFIER = org.alexmartin.idared32bit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -468,7 +466,6 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = touchHLE/touchHLE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				EXCLUDED_SOURCE_FILE_NAMES = "*.dylib";
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ../vendor/SDL/include;
@@ -488,7 +485,6 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
-				MARKETING_VERSION = 1.2.23;
 				PRODUCT_BUNDLE_IDENTIFIER = org.alexmartin.idared32bit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -567,7 +563,6 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = touchHLE/touchHLE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ../vendor/SDL/include;
 				INFOPLIST_FILE = Info.plist;
@@ -586,7 +581,6 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
-				MARKETING_VERSION = 1.2.23;
 				PRODUCT_BUNDLE_IDENTIFIER = org.alexmartin.idared32bit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

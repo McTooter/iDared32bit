@@ -42,13 +42,18 @@ pub fn main() {
             format!("v{toml_version} (git rev. unknown)")
         }
     };
-    // App picker version: "1.2" + touchHLE's version with '0'/'.' stripped
-    // "0.2.3" -> "23" -> "1.2.23". Keep MARKETING_VERSION in sync by hand
-    let stripped_toml_version: String = toml_version
-        .chars()
-        .filter(|c| *c != '0' && *c != '.')
-        .collect();
-    let display_version = format!("1.2.{stripped_toml_version}");
+    // The version shown in the app is iDared 32bit's own, set only in the iOS
+    // app's Config.xcconfig, which the Xcode project also takes it from.
+    let xcconfig_path = workspace_root.join("iphone/Config.xcconfig");
+    rerun_if_changed(&xcconfig_path);
+    let xcconfig = std::fs::read_to_string(&xcconfig_path).unwrap();
+    let display_version = xcconfig
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == "MARKETING_VERSION").then(|| value.trim().to_string())
+        })
+        .expect("MARKETING_VERSION must be set in iphone/Config.xcconfig");
     std::fs::write(out_dir.join("display_version.txt"), display_version).unwrap();
 
     std::fs::write(out_dir.join("version.txt"), version).unwrap();
