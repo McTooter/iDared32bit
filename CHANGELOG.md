@@ -36,23 +36,10 @@ Compatibility:
   - Fixed several issues related to apps that rely on UIKit to rotate their UI. (@hikari-no-yume)
   - Support for iPad device family. Device family is deduced from the app bundle, but user can also override it with `--device-family=` option. (@ciciplusplus)
   - [SQLite3](https://github.com/touchHLE/sqlite-dylib) and [libxml2](https://github.com/touchHLE/libxml2-dylib) dynamic libraries are now available, compiled from source using our [clean open-source toolchain](https://github.com/touchHLE/common-3.0-sdk). (@acieslewicz, @ciciplusplus)
-  - Photo Album support
-    - `UIImageWriteToSavedPhotosAlbum` saves to `DCIM/100APPLE` like real iOS. (@apexad)
-  - Fixed a black screen on iOS in games that bind their renderbuffer once and then present every frame, such as Hero of Sparta. (@apexad)
 - Improved support for iOS 3.1+:
   - The bundled dynamic libraries, libgcc and libstdc++, have been updated to their iOS 4.0.1 versions. (@ciciplusplus)
   - Support for NIBArchive NIB file format decoding. (@ciciplusplus)
 - Switched to a coroutine-based threading system. This solves [some compatibility issues](https://github.com/touchHLE/touchHLE/issues/119) and improves performance in some games. (@abnormalmaps)
-
-Usability:
-
-- The log from the previous run is now kept as `touchHLE_log.previous.txt`, so relaunching after a hang or black screen no longer loses the log of what went wrong. (@apexad)
-
-Other:
-
-- Replaced the Dynarmic-based JIT CPU emulation backend with an ARM interpreter derived from [mGBA](https://github.com/mgba-emu/mgba)'s, vendored in `vendor/mgba_arm/` and extended from ARMv4T to ARMv7-A, Thumb-2 included, with VFPv3 (flush-to-zero, rounding modes and short vectors included) and Advanced SIMD (NEON), plus the armv7s additions (VFPv4 fused multiply-add, half-precision conversions and integer divide). Fat binaries' armv7s slices are now preferred, then armv7, then armv6. mGBA is licensed under the MPL-2.0, like touchHLE.
-- Replaced OpenAL Soft with a built-in software audio mixer that outputs through SDL's audio subsystem. touchHLE's guest-facing `OpenAL.framework` and its Audio Toolbox playback (Audio Queue, Audio Services, Audio Unit) are now backed by this mixer instead of the OpenAL Soft C library, so OpenAL Soft is no longer a dependency or a submodule (`vendor/openal-soft/`).
-- Distributed binaries are now licensed under the MPL-2.0.
 
 ## v0.2.3 (2026-01-02)
 
