@@ -48,7 +48,7 @@ git clone --recursive https://github.com/iDared32bit-emu/iDared32bit.git
 
 All the general prerequisites apply. In addition you need:
 
-1. A Mac with a recent [Xcode](https://developer.apple.com/xcode/). The app targets iOS 17 and later.
+1. A Mac with a recent [Xcode](https://developer.apple.com/xcode/). The app targets iOS 16 and later.
 2. The iOS Rust toolchains: `rustup target add aarch64-apple-ios aarch64-apple-ios-sim` (the Xcode build tries to add them itself if they're missing).
 3. To run on a device, an Apple Developer account (a free one works for your own devices).
 
