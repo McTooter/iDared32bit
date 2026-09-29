@@ -12,7 +12,7 @@
 //! window system interaction in general, because it is assumed only one window
 //! will be needed for the runtime of the app.
 
-use crate::gles::present::present_frame;
+use crate::gles::present::{present_frame, HomeButtonOverlay};
 use crate::gles::{create_gles1_ctx_no_parent_stack, GLESContext, GLES};
 use crate::image::Image;
 use crate::matrix::Matrix;
@@ -142,6 +142,21 @@ pub enum FingerId {
 }
 pub type Coords = (f32, f32);
 
+/// A touch on the on-screen Home button (see [Window::home_button_overlay]).
+/// Its later movement and release are the button's too, not the app's.
+struct HomeButtonPress {
+    finger_id: i64,
+    /// A [Event::HomeButton] has been queued for it.
+    triggered: bool,
+}
+
+#[derive(Clone, Copy)]
+enum TouchKind {
+    Down,
+    Move,
+    Up,
+}
+
 struct DpadState {
     left: bool,
     right: bool,
@@ -173,8 +188,9 @@ pub enum Event {
     /// User pressed F12, requesting that execution be paused and the debugger
     /// take over.
     EnterDebugger,
-    /// User pressed Esc (on desktop) or Back (on Android), or held a game
-    /// controller's Back button.
+    /// User pressed Esc (on desktop) or Back (on Android), held a game
+    /// controller's Back button, or touched the on-screen Home button (on
+    /// iOS).
     HomeButton,
     TextInput(TextInputEvent),
 }
@@ -258,6 +274,10 @@ pub struct Window {
     /// When a game controller's Back button was pressed, if it's still held
     /// and hasn't yet been held long enough to return to the app picker.
     controller_back_held_since: Option<Instant>,
+    /// Whether to show the on-screen Home button, see
+    /// [Self::enable_on_screen_home_button].
+    on_screen_home_button: bool,
+    home_button_press: Option<HomeButtonPress>,
     /// Whether or not we are on the "main" environment stack (rather than
     /// a coroutine stack). Checked in various functions to make sure that
     /// certain SDL functions (that call JNI functions) are on the main
@@ -268,6 +288,10 @@ pub struct Window {
 /// How long a game controller's Back button must be held to return to the app
 /// picker. Holding avoids accidents in games that use it.
 const CONTROLLER_BACK_HOLD: Duration = Duration::from_secs(1);
+
+/// Whether this platform gets the on-screen Home button. Only iOS needs it,
+/// since it has no Esc key or Back button.
+const ON_SCREEN_HOME_BUTTON_PLATFORM: bool = cfg!(target_os = "ios");
 
 impl Window {
     /// Returns [true] if touchHLE is running on a device where we should always
@@ -418,6 +442,8 @@ impl Window {
             virtual_cursor_last_unsticky: None,
             virtual_accelerometer_last: None,
             controller_back_held_since: None,
+            on_screen_home_button: false,
+            home_button_press: None,
             on_main_stack: true,
         };
 
@@ -778,6 +804,22 @@ impl Window {
                     y,
                     ..
                 } => {
+                    let kind = match event {
+                        E::FingerDown { .. } => TouchKind::Down,
+                        E::FingerMotion { .. } => TouchKind::Move,
+                        _ => TouchKind::Up,
+                    };
+                    let abs_coords = finger_absolute_coords(self, (x, y));
+                    if Self::handle_home_button_touch(
+                        self.home_button_geometry(),
+                        self.viewport(),
+                        &mut self.home_button_press,
+                        kind,
+                        finger_id,
+                        abs_coords,
+                    ) {
+                        continue;
+                    }
                     log_dbg!("Starting multi-touch for {:?}", event);
                     // To implement multi-touch we accumulate here same touch
                     // events at the same timestamp. This is consistent with
@@ -785,7 +827,6 @@ impl Window {
                     // (in worst case we separate multi-touches in several ones)
                     // TODO: handle out of order touches
                     let curr_timestamp = timestamp;
-                    let abs_coords = finger_absolute_coords(self, (x, y));
                     let coords = transform_input_coords(self, abs_coords, false);
                     log_dbg!("Finger event x {}, y {}, coords {:?}", x, y, coords);
                     let mut map = HashMap::from([(FingerId::Touch(finger_id), coords)]);
@@ -817,6 +858,16 @@ impl Window {
                                 ..
                             } if timestamp == curr_timestamp && next.is_same_kind_as(&event) => {
                                 let abs_coords = finger_absolute_coords(self, (x, y));
+                                if Self::handle_home_button_touch(
+                                    self.home_button_geometry(),
+                                    self.viewport(),
+                                    &mut self.home_button_press,
+                                    kind,
+                                    finger_id,
+                                    abs_coords,
+                                ) {
+                                    continue;
+                                }
                                 let coords = transform_input_coords(self, abs_coords, false);
                                 map.insert(FingerId::Touch(finger_id), coords);
                             }
@@ -887,6 +938,14 @@ impl Window {
             })
         }
 
+        if let Some(press) = &mut self.home_button_press {
+            if !press.triggered {
+                press.triggered = true;
+                echo!("On-screen Home button touched, HomeButton event queued.");
+                self.event_queue.push_back(Event::HomeButton);
+            }
+        }
+
         if let Some(since) = self.controller_back_held_since {
             if since.elapsed() >= CONTROLLER_BACK_HOLD {
                 // Only once per hold.
@@ -915,6 +974,125 @@ impl Window {
                     }
                     _ => return,
                 });
+        }
+    }
+
+    /// Show the on-screen Home button, on platforms without another way to
+    /// return to the app picker (iOS). It's for apps, not the app picker.
+    pub fn enable_on_screen_home_button(&mut self) {
+        self.on_screen_home_button = ON_SCREEN_HOME_BUTTON_PLATFORM;
+    }
+
+    /// Where the on-screen Home button is, if it's shown: its centre and
+    /// radius, in drawable pixels from the top left.
+    ///
+    /// It sits in the black bars beside the app: below it (where the original
+    /// iPhone's Home button was) or else to its right. So it never covers the
+    /// app or takes its touches. Its centre is a little nearer the app than
+    /// the screen's edge, clear of the home indicator and Dynamic Island. If
+    /// the bars are too narrow, there is no button.
+    fn home_button_geometry(&self) -> Option<(f32, f32, f32)> {
+        if !self.on_screen_home_button {
+            return None;
+        }
+        let (vx, vy, vw, vh) = self.viewport();
+        let (screen_width, screen_height) = self.window.drawable_size();
+        let pixels_per_point = screen_width as f32 / self.window.size().0 as f32;
+        let (bar, x, y) = if vy > 0 {
+            let bar = (screen_height - (vy + vh)) as f32;
+            (
+                bar,
+                screen_width as f32 / 2.0,
+                (vy + vh) as f32 + bar * 0.45,
+            )
+        } else if vx > 0 {
+            let bar = (screen_width - (vx + vw)) as f32;
+            (
+                bar,
+                (vx + vw) as f32 + bar * 0.45,
+                screen_height as f32 / 2.0,
+            )
+        } else {
+            return None;
+        };
+        // 44 points across, Apple's minimum size for something to tap, if
+        // there's room.
+        let radius = (22.0 * pixels_per_point).min(bar * 0.35);
+        (radius >= 12.0 * pixels_per_point).then_some((x, y, radius))
+    }
+
+    /// The on-screen Home button to draw over the app, if it's shown.
+    pub fn home_button_overlay(&self) -> Option<HomeButtonOverlay> {
+        let (x, y, radius) = self.home_button_geometry()?;
+        let (screen_width, screen_height) = self.window.drawable_size();
+        let pressed = self.home_button_press.is_some();
+        Some(HomeButtonOverlay {
+            x,
+            y,
+            radius,
+            pressed,
+            screen_width,
+            screen_height,
+        })
+    }
+
+    /// Handle a touch that might be on the on-screen Home button, which is at
+    /// `geometry` (see [Self::home_button_geometry]). Returns [true] if it is,
+    /// in which case it must not be passed on to the app. (This takes the
+    /// press state rather than `&mut self`, so it can be used while events are
+    /// being queued.)
+    fn handle_home_button_touch(
+        geometry: Option<(f32, f32, f32)>,
+        (vx, vy, vw, vh): (u32, u32, u32, u32),
+        home_button_press: &mut Option<HomeButtonPress>,
+        kind: TouchKind,
+        finger_id: i64,
+        (x, y): (f32, f32),
+    ) -> bool {
+        let Some((button_x, button_y, radius)) = geometry else {
+            return false;
+        };
+        let distance = (x - button_x).hypot(y - button_y);
+        // Apps never get touches outside their area, so the button can take
+        // any that start nearby, well beyond what's drawn: a fingertip's
+        // touch point often lands below where the finger is aimed.
+        let outside_app =
+            x < vx as f32 || y < vy as f32 || x >= (vx + vw) as f32 || y >= (vy + vh) as f32;
+        if matches!(kind, TouchKind::Down) && outside_app {
+            log_dbg!(
+                "Touch outside the app at ({}, {}) pixels; on-screen Home button at ({}, {}), radius {}",
+                x,
+                y,
+                button_x,
+                button_y,
+                radius
+            );
+        }
+        match kind {
+            TouchKind::Down
+                if home_button_press.is_none() && outside_app && distance <= radius * 2.5 =>
+            {
+                *home_button_press = Some(HomeButtonPress {
+                    finger_id,
+                    triggered: false,
+                });
+                true
+            }
+            TouchKind::Move => home_button_press
+                .as_ref()
+                .is_some_and(|press| press.finger_id == finger_id),
+            TouchKind::Up => {
+                if home_button_press
+                    .as_ref()
+                    .is_some_and(|press| press.finger_id == finger_id)
+                {
+                    *home_button_press = None;
+                    true
+                } else {
+                    false
+                }
+            }
+            TouchKind::Down => false,
         }
     }
 
@@ -1328,6 +1506,7 @@ impl Window {
                 viewport,
                 matrix,
                 /* virtual_cursor_visible_at: */ None,
+                /* home_button: */ None,
                 None,
             );
 

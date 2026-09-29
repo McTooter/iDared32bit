@@ -705,6 +705,12 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
         };
 
+        // Apps get the on-screen Home button (where there is one), the app
+        // picker doesn't.
+        if let Some(window) = env.window.as_mut() {
+            window.enable_on_screen_home_button();
+        }
+
         if env.options.dumping_options.any() {
             env.dump_file =
                 Some(std::fs::File::create(&env.options.dumping_file).map_err(|e| e.to_string())?);

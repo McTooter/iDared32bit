@@ -586,6 +586,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, _context: id) {
     let viewport = env.window.as_mut().unwrap().viewport();
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
+    let home_button = env.window.as_mut().unwrap().home_button_overlay();
     let current_rotation = env.window.as_mut().unwrap().current_rotation();
 
     // All the drawing below happens in the thread's current context, which
@@ -764,6 +765,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, _context: id) {
         viewport,
         rotation_matrix,
         virtual_cursor_visible_at,
+        home_button,
         Some(&TextureCoordinates::normalized(
             render_width as _,
             render_height as _,
