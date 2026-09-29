@@ -36,14 +36,14 @@ Because iDared 32bit uses a different CPU backend, SDL-based audio, iOS-specific
 
 ## Platform support
 
-* Officially supported: iOS, AArch64 macOS (built locally)
+iDared 32bit is built, tested and released as a native **iOS** app for iPhone and iPad (AArch64).
 
-This fork's target is a native **iOS** app (AArch64) for iPhone and iPad; that is the platform it is built, tested, and released for. AArch64 macOS is used for development and works; the remaining host platforms below are inherited from touchHLE but have not all been re-verified in this fork.  Additionally, this fork removes the automated GitHub build scripts.
+* Officially supported:
+  * iOS, released on the App Store.
+  * AArch64 macOS, which is used for development. You must build it yourself.
+* Inherited from touchHLE, but not verified in this fork: x64 macOS, x64 and AArch64 Linux, x64 Windows and AArch64 Android. You must build these yourself.
 
-* Officially supported: x64 Windows, x64 macOS and AArch64 Android.
-  * These are the platforms with binary releases.
-  * If you're an Apple Silicon Mac user, the x64 build reportedly works in Rosetta.
-* Probably works, but you must build it yourself: AArch64 macOS, x64 Linux, AArch64 Linux.
+There are no binary releases except the App Store app. This fork's GitHub Actions only check formatting and run lint and tests; they don't build releases.
 
 ## Important disclaimers
 
