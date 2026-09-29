@@ -581,15 +581,27 @@ unsafe fn read_renderbuffer(gles: &mut dyn GLES, mut pixel_buffer: Vec<u8>) -> (
 /// (which should be provided by the app) to a texture and presents it with
 /// [present_frame], trying to avoid noticeably modifying OpenGL ES state while
 /// doing so. The front and back buffers are then swapped.
-unsafe fn present_renderbuffer(env: &mut Environment, context: id) {
+unsafe fn present_renderbuffer(env: &mut Environment, _context: id) {
     // Save these for when we need to draw the frame
     let viewport = env.window.as_mut().unwrap().viewport();
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
     let current_rotation = env.window.as_mut().unwrap().current_rotation();
+
+    // All the drawing below happens in the thread's current context, which
+    // isn't necessarily the one presentRenderbuffer: was sent to. On iOS the
+    // framebuffer we finally draw into is one of a context's own objects, so
+    // it has to be the current context's: the receiver's framebuffer name
+    // would mean some other object, or nothing, in the current context, and
+    // the frame would never reach the screen. (Elsewhere it's always 0.)
+    let current_context = env
+        .framework_state
+        .opengles
+        .current_ctx_for_thread(env.current_thread)
+        .unwrap();
     let drawable_framebuffer = env
         .objc
-        .borrow::<EAGLContextHostObject>(context)
+        .borrow::<EAGLContextHostObject>(current_context)
         .drawable_framebuffer;
 
     let gles_ctx = super::get_thread_context(
