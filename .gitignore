@@ -3,6 +3,7 @@
 /DCIM
 /touchHLE_apps
 touchHLE_log.txt
+touchHLE_log.previous.txt
 touchHLE_wallpaper.*
 
 # Xcode Project (Modern/Deeply Nested)

@@ -13,9 +13,20 @@ use std::sync::LazyLock;
 /// All the logging macros print to stderr or (on Android) logcat, but this
 /// is not convenient for users who aren't accustomed to command-line tools or
 /// who don't have access to ADB, so we also write to a log file.
+///
+/// The log from the previous run is kept as `touchHLE_log.previous.txt`,
+/// replacing any older one, so there is only ever one previous log. On iOS
+/// and Android, getting past a hang or black screen means relaunching, which
+/// would otherwise overwrite the log of the run that went wrong.
 pub fn get_log_file() -> &'static File {
     static LOG_FILE: LazyLock<File> = LazyLock::new(|| {
-        File::create(crate::paths::user_data_base_path().join("touchHLE_log.txt")).unwrap()
+        let base_path = crate::paths::user_data_base_path();
+        let path = base_path.join("touchHLE_log.txt");
+        // This replaces an existing previous log on all platforms (including
+        // Windows, where Rust's rename replaces the destination too). It fails
+        // harmlessly if there's no log yet, e.g. on the first run.
+        let _ = std::fs::rename(&path, base_path.join("touchHLE_log.previous.txt"));
+        File::create(path).unwrap()
     });
 
     &LOG_FILE
