@@ -5,8 +5,7 @@
 /// Current version. See `build.rs` for how this is generated.
 pub const VERSION: &str = include_str!(concat!(env!("OUT_DIR"), "/version.txt"));
 
-/// UI-facing version for the iDared fork: "1.1" + touchHLE's version with
-/// '0'/'.' stripped, e.g. `"1.1.23"`. See `build.rs`.
+/// UI-facing version for the iDared fork
 pub const DISPLAY_VERSION: &str = include_str!(concat!(env!("OUT_DIR"), "/display_version.txt"));
 
 // Environment variables set by GitHub Actions

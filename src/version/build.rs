@@ -42,13 +42,13 @@ pub fn main() {
             format!("v{toml_version} (git rev. unknown)")
         }
     };
-    // App picker version: "1.1" + touchHLE's version with '0'/'.' stripped
-    // "0.2.3" -> "23" -> "1.1.23". Keep MARKETING_VERSION in sync by hand
+    // App picker version: "1.2" + touchHLE's version with '0'/'.' stripped
+    // "0.2.3" -> "23" -> "1.2.23". Keep MARKETING_VERSION in sync by hand
     let stripped_toml_version: String = toml_version
         .chars()
         .filter(|c| *c != '0' && *c != '.')
         .collect();
-    let display_version = format!("1.1.{stripped_toml_version}");
+    let display_version = format!("1.2.{stripped_toml_version}");
     std::fs::write(out_dir.join("display_version.txt"), display_version).unwrap();
 
     std::fs::write(out_dir.join("version.txt"), version).unwrap();
