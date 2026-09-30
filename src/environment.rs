@@ -326,33 +326,39 @@ impl Environment {
         // window rotation after-the-fact is somewhat glitchy.
         // This also ensures the splash screen is correctly oriented.
         if options.initial_orientation == window::DeviceOrientation::Portrait {
-            if let Some(&non_portrait_orientation) = bundle
-                .supported_interface_orientations()
-                .iter()
-                .find(|&&o| o != "UIInterfaceOrientationPortrait")
-            {
-                // TODO: Overwriting the options might not be ideal; do we need
-                //       to distinguish this kind of orientation change from
-                //       others?
-                options.initial_orientation = match non_portrait_orientation {
-                    // UIInterfaceOrientation values are flipped relative to
-                    // (UI)DeviceOrientation values (content has to rotate in
-                    // the opposite direction to how the device rotates).
-                    "UIInterfaceOrientationPortraitUpsideDown" => {
-                        window::DeviceOrientation::PortraitUpsideDown
-                    }
-                    "UIInterfaceOrientationLandscapeLeft" => {
-                        window::DeviceOrientation::LandscapeRight
-                    }
-                    "UIInterfaceOrientationLandscapeRight" => {
-                        window::DeviceOrientation::LandscapeLeft
-                    }
-                    // This appears to be an older way set the orientation.
-                    // From testing, it seems to correspond to left.
-                    "UIInterfaceOrientationLandscape" => window::DeviceOrientation::LandscapeLeft,
-                    other => unimplemented!("Unsupported startup orientation: {:?}", other),
-                };
-                log!("App needs non-portrait user interface orientation {:?}, applying device orientation {:?}.", non_portrait_orientation, options.initial_orientation);
+            let orientations = bundle.supported_interface_orientations();
+            // Many apps list other orientations as well as portrait, but
+            // should still start in portrait.
+            if !orientations.contains(&"UIInterfaceOrientationPortrait") {
+                if let Some(&non_portrait_orientation) = orientations
+                    .iter()
+                    .find(|&&o| o != "UIInterfaceOrientationPortrait")
+                {
+                    // TODO: Overwriting the options might not be ideal;
+                    //       do we need to distinguish this kind of
+                    //       orientation change from others?
+                    options.initial_orientation = match non_portrait_orientation {
+                        // UIInterfaceOrientation values are flipped relative to
+                        // (UI)DeviceOrientation values (content has to rotate
+                        // in the opposite direction to how the device rotates).
+                        "UIInterfaceOrientationPortraitUpsideDown" => {
+                            window::DeviceOrientation::PortraitUpsideDown
+                        }
+                        "UIInterfaceOrientationLandscapeLeft" => {
+                            window::DeviceOrientation::LandscapeRight
+                        }
+                        "UIInterfaceOrientationLandscapeRight" => {
+                            window::DeviceOrientation::LandscapeLeft
+                        }
+                        // This appears to be an older way set the orientation.
+                        // From testing, it seems to correspond to left.
+                        "UIInterfaceOrientationLandscape" => {
+                            window::DeviceOrientation::LandscapeLeft
+                        }
+                        other => unimplemented!("Unsupported startup orientation: {:?}", other),
+                    };
+                    log!("App needs non-portrait user interface orientation {:?}, applying device orientation {:?}.", non_portrait_orientation, options.initial_orientation);
+                }
             }
         }
 
