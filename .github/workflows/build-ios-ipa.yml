@@ -31,7 +31,7 @@ jobs:
           cargo --version
 
       - name: Install iOS Rust targets
-        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+        run: rustup target add aarch64-apple-ios
 
       - name: Archive iOS app
         run: |
