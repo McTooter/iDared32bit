@@ -1,0 +1,69 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: ["idared32bit"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-ios-ipa:
+    name: Build iOS IPA
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          rustc --version
+          cargo --version
+
+      - name: Install iOS Rust targets
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+
+      - name: Archive iOS app
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild \
+            -project iphone/touchHLE.xcodeproj \
+            -scheme "iDared 32bit" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/build/iDared32bit.xcarchive" \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            | tee build/xcodebuild-archive.log
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_PATH="build/iDared32bit.xcarchive/Products/Applications/iDared 32bit.app"
+          test -d "$APP_PATH"
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent build/Payload build/iDared32bit-unsigned.ipa
+          unzip -l build/iDared32bit-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDared32bit-unsigned-ipa
+          path: |
+            build/iDared32bit-unsigned.ipa
+            build/xcodebuild-archive.log
+          if-no-files-found: error
+          retention-days: 14
