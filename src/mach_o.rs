@@ -51,6 +51,9 @@ pub struct MachO {
     pub external_relocations: Vec<(u32, String)>,
     /// Address/program counter value for the entry point.
     pub entry_point_pc: Option<u32>,
+    /// Address of the __TEXT segment, which starts with the Mach-O header.
+    /// This is the start of the binary in memory, as `dladdr()` reports it.
+    pub text_segment_base: Option<u32>,
     /// End address of the highest-addressed segment.
     /// This is used by get_end() to return the first address after the last
     /// segment in the executable.
@@ -698,6 +701,7 @@ impl MachO {
             exported_symbols,
             external_relocations,
             entry_point_pc,
+            text_segment_base,
             last_segment_end,
         })
     }
