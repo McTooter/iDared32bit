@@ -2241,6 +2241,57 @@ int test_NSThread_isExecuting_isFinished() {
   return 0;
 }
 
+@interface NSThreadExitTarget : NSObject {
+@public
+  volatile int reached_exit;
+  volatile int ran_after_exit;
+}
+- (void)run:(id)unused;
+@end
+
+@implementation NSThreadExitTarget
+- (void)run:(id)unused {
+  reached_exit = 1;
+  [NSThread exit];
+  ran_after_exit = 1;
+}
+@end
+
+void *pthread_exit_thread(void *arg) {
+  *(int *)arg = 1;
+  pthread_exit((void *)42);
+  *(int *)arg = 2;
+  return NULL;
+}
+
+int test_NSThread_exit_pthread_exit() {
+  NSThreadExitTarget *target = [NSThreadExitTarget new];
+  NSThread *thread = [[NSThread alloc] initWithTarget:target
+                                             selector:@selector(run:)
+                                               object:nil];
+  [thread start];
+  for (int i = 0; i < 5000 && ![thread isFinished]; i++)
+    usleep(1000);
+  if (!target->reached_exit || target->ran_after_exit)
+    return -1;
+  if ([thread isExecuting] || ![thread isFinished])
+    return -2;
+  [thread release];
+  [target release];
+
+  int progress = 0;
+  void *ret = NULL;
+  pthread_t p;
+  if (pthread_create(&p, NULL, pthread_exit_thread, &progress) != 0)
+    return -3;
+  if (pthread_join(p, &ret) != 0)
+    return -4;
+  if (progress != 1 || ret != (void *)42)
+    return -5;
+
+  return 0;
+}
+
 int second_thread_thread_size_res = -1;
 
 void *second_thread(void *arg) {
@@ -6646,6 +6697,7 @@ struct {
     FUNC_DEF(test_NSConditionLock_tryLock_contended),
     FUNC_DEF(test_NSConditionLock_producer_consumer),
     FUNC_DEF(test_NSThread_isExecuting_isFinished),
+    FUNC_DEF(test_NSThread_exit_pthread_exit),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),

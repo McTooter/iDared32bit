@@ -300,6 +300,10 @@ pub fn pthread_self(env: &mut Environment) -> pthread_t {
     ptr
 }
 
+fn pthread_exit(env: &mut Environment, value_ptr: MutVoidPtr) {
+    env.exit_current_thread(value_ptr)
+}
+
 fn pthread_join(env: &mut Environment, thread: pthread_t, retval: MutPtr<MutVoidPtr>) -> i32 {
     let current_thread = env.current_thread;
     let curr_pthread_t = pthread_self(env);
@@ -459,6 +463,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_equal(_, _)),
     export_c_func!(pthread_self()),
     export_c_func!(pthread_join(_, _)),
+    export_c_func!(pthread_exit(_)),
     export_c_func!(pthread_detach(_)),
     export_c_func!(pthread_setcanceltype(_, _)),
     export_c_func!(pthread_testcancel()),

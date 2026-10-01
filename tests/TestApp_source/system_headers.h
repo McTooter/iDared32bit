@@ -231,6 +231,7 @@ SEL NSSelectorFromString(NSString *);
 
 @interface NSThread : NSObject
 + (NSThread *)currentThread;
++ (void)exit;
 - (instancetype)initWithTarget:(id)target
                       selector:(SEL)selector
                         object:(id)argument;

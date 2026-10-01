@@ -1304,6 +1304,19 @@ impl Environment {
         self.yield_thread(ThreadBlock::Joining(joinee_thread, ptr));
     }
 
+    /// End the current thread from within it, as `pthread_exit()` does: it
+    /// finishes with `return_value`, and [Self::run] then cleans it up as if
+    /// its start routine had returned. This never returns.
+    pub fn exit_current_thread(&mut self, return_value: mem::MutVoidPtr) -> ! {
+        assert_ne!(self.current_thread, 0, "The main thread can't exit");
+        log_dbg!("Thread {} exiting", self.current_thread);
+        let thread = &mut self.threads[self.current_thread];
+        thread.return_value = Some(return_value);
+        thread.state = ThreadState::Dead;
+        self.yield_thread(ThreadBlock::NotBlocked);
+        unreachable!("Thread {} resumed after exiting", self.current_thread);
+    }
+
     pub fn run_app_picker<F, R>(mut self, f: F) -> R
     where
         F: FnOnce(&mut Environment) -> R + 'static,
@@ -1399,7 +1412,7 @@ impl Environment {
                 // same time, very large values are bad for responsiveness.
                 self.remaining_ticks = Some(100_000);
             }
-            let mut kill_current_thread = false;
+            let kill_current_thread;
 
             if let Some(w) = self.window.as_mut() {
                 w.on_main_stack = false;
@@ -1409,7 +1422,14 @@ impl Environment {
             }));
             self = match res {
                 Ok(ret) => match ret {
-                    corosensei::CoroutineResult::Yield(env) => env,
+                    corosensei::CoroutineResult::Yield(env) => {
+                        // A thread that ended itself with
+                        // exit_current_thread() is cleaned up like one whose
+                        // start routine returned.
+                        kill_current_thread =
+                            env.threads[env.current_thread].state == ThreadState::Dead;
+                        env
+                    }
                     corosensei::CoroutineResult::Return(env) => {
                         kill_current_thread = true;
                         env

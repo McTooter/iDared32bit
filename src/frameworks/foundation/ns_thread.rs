@@ -13,7 +13,7 @@ use crate::libc::pthread::thread::{
     pthread_attr_init, pthread_attr_setdetachstate, pthread_attr_setstacksize, pthread_attr_t,
     pthread_create, pthread_self, pthread_t, thread_id_for_pthread, PTHREAD_CREATE_DETACHED,
 };
-use crate::mem::{guest_size_of, Mem, MutPtr};
+use crate::mem::{guest_size_of, Mem, MutPtr, Ptr};
 use crate::objc::{
     id, msg_send, msg_send_no_type_checking, nil, objc_classes, release, retain, todo_objc_setter,
     Class, ClassExports, HostObject, NSZonePtr, SEL,
@@ -121,6 +121,13 @@ pub const CLASSES: ClassExports = objc_classes! {
                      toTarget:(id)target
                    withObject:(id)object {
     detach_new_thread_inner(env, selector, target, object, /* tolerate_type_mismatch: */ false)
+}
+
++ (())exit {
+    let ns_thread: id = msg![env; this currentThread];
+    log_dbg!("[NSThread exit] on {:?}", ns_thread);
+    finish_ns_thread(env, ns_thread);
+    env.exit_current_thread(Ptr::null())
 }
 
 + (bool)isMainThread {
@@ -281,6 +288,12 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
 
     () = msg![env; ns_thread_obj main];
 
+    finish_ns_thread(env, ns_thread_obj);
+}
+
+/// Tidy up after an `NSThread`'s thread is done, whether its `main` returned
+/// or it called `+[NSThread exit]`. This must be called on that thread.
+fn finish_ns_thread(env: &mut Environment, ns_thread_obj: id) {
     env.objc
         .borrow_mut::<NSThreadHostObject>(ns_thread_obj)
         .finished = true;
@@ -305,8 +318,6 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
         // e.g. created with `detachNewThreadSelector:toTarget:withObject:`
         release(env, ns_thread_obj);
     }
-
-    // TODO: NSThread exit
 }
 
 pub fn detach_new_thread_inner(
