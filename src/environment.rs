@@ -1625,6 +1625,43 @@ impl Environment {
         self.gdb_server.is_some()
     }
 
+    #[cfg(test)]
+    pub fn new_fake_for_test() -> Self {
+        let options = options::Options::default();
+        let mut mem = mem::Mem::new();
+        let mut objc = objc::ObjC::new();
+        let mut dyld = dyld::Dyld::new();
+        dyld.do_initial_linking_with_no_bins(&mut mem, &mut objc);
+        let cpu = cpu::Cpu::new(None);
+
+        Environment {
+            startup_time: Instant::now(),
+            bundle: NullableBox::new(bundle::Bundle::new_fake_bundle()),
+            fs: NullableBox::new(fs::Fs::new_fake_fs()),
+            window: None,
+            openal_manager: unsafe { NullableBox::null() },
+            mem: NullableBox::new(mem),
+            bins: Vec::new(),
+            objc: NullableBox::new(objc),
+            dyld: NullableBox::new(dyld),
+            cpu: NullableBox::new(cpu),
+            current_thread: 0,
+            threads: Vec::new(),
+            libc_state: Default::default(),
+            mutex_state: Default::default(),
+            framework_state: Default::default(),
+            options: NullableBox::new(options),
+            gdb_server: None,
+            env_vars: Default::default(),
+            dump_file: None,
+            is_app_picker: false,
+            return_to_app_picker: false,
+            yielder: std::ptr::null(),
+            remaining_ticks: None,
+            panic_cell: Rc::new(Cell::new(None)),
+        }
+    }
+
     /// Suspend execution and hand control to the connected debugger.
     /// You should precede this call with a log message that explains why the
     /// debugger is being invoked. The return value is the same as

@@ -32,8 +32,11 @@ pub const EROFS: i32 = 30;
 pub const EAGAIN: i32 = 35;
 pub const EPROTONOSUPPORT: i32 = 43;
 pub const ENOTSUP: i32 = 45;
+pub const ENETUNREACH: i32 = 51;
 pub const ECONNRESET: i32 = 54;
 pub const ETIMEDOUT: i32 = 60;
+pub const ECONNREFUSED: i32 = 61;
+pub const EHOSTUNREACH: i32 = 65;
 pub const EOVERFLOW: i32 = 84;
 
 #[derive(Default)]
@@ -69,6 +72,13 @@ pub fn set_errno(env: &mut Environment, val: i32) {
     env.libc_state
         .errno
         .set_errno_for_thread(&mut env.mem, env.current_thread, val);
+}
+
+/// Helper for tests: the current thread's errno.
+#[cfg(test)]
+pub fn get_errno(env: &mut Environment) -> i32 {
+    let ptr = __error(env);
+    env.mem.read(ptr)
 }
 
 fn __error(env: &mut Environment) -> MutPtr<i32> {
