@@ -1914,7 +1914,21 @@ impl Environment {
                             let time = SystemTime::now()
                                 .duration_since(SystemTime::UNIX_EPOCH)
                                 .unwrap();
-                            if deadline <= time {
+                            if deadline > time {
+                                // Make sure we wake up for the timeout if
+                                // every thread is blocked.
+                                let timeout_at = Instant::now() + (deadline - time);
+                                next_awakening = Some(match next_awakening {
+                                    None => timeout_at,
+                                    Some(other) => other.min(timeout_at),
+                                });
+                            } else if !host_cond.waking.contains(&thread_id)
+                                && !self.mutex_state.mutex_is_locked(mutex)
+                            {
+                                // A thread that has already been signalled
+                                // will wake up normally, and a timed-out
+                                // thread still has to wait to get the mutex
+                                // back.
                                 log_dbg!(
                                     "Thread {} is timed out on cond var {:?}.",
                                     thread_id,
@@ -1923,10 +1937,8 @@ impl Environment {
                                 assert!(!host_cond.timed_out.contains(&thread_id));
                                 host_cond.timed_out.insert(thread_id);
 
-                                assert!(host_cond.waking.is_empty());
                                 host_cond.waiting.retain(|&t| t != thread_id);
 
-                                assert!(!self.mutex_state.mutex_is_locked(mutex));
                                 self.threads[thread_id].blocked_by = ThreadBlock::NotBlocked;
                                 self.relock_unblocked_mutex_for_thread(thread_id, mutex);
                                 return thread_id;
@@ -1985,7 +1997,6 @@ impl Environment {
                 // This should hopefully not happen, but if a thread is
                 // blocked on another thread waiting for a deferred return,
                 // it could.
-                // TODO: handle a thread waiting on condition with a timeout
                 panic!("No active threads, program has deadlocked!");
             }
         }
