@@ -8,6 +8,7 @@
 //! Unlike its siblings, this module should be considered private and only used
 //! via the re-exports one level up.
 
+mod airplay_sdk;
 pub mod app_picker;
 mod mutex;
 mod nullable_box;
@@ -459,6 +460,9 @@ impl Environment {
             /* slide: */ 0,
         )
         .map_err(|e| format!("Could not load executable: {e}"))?;
+
+        // This needs the executable's code as it was before linking.
+        airplay_sdk::fix_code_hash(&executable, &mut mem);
 
         let mut dylibs = Vec::new();
         for dylib in &executable.dynamic_libraries {
