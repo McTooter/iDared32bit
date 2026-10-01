@@ -2177,6 +2177,70 @@ int test_NSConditionLock_producer_consumer() {
   return 0;
 }
 
+@interface NSThreadStatusTarget : NSObject {
+@public
+  volatile int started;
+  volatile int should_finish;
+}
+- (void)run:(id)unused;
+@end
+
+@implementation NSThreadStatusTarget
+- (void)run:(id)unused {
+  started = 1;
+  while (!should_finish)
+    usleep(1000);
+}
+@end
+
+void *nsthread_status_pthread(void *arg) {
+  // A thread not started by NSThread gets an NSThread from currentThread.
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSThread *thread = [NSThread currentThread];
+  *(int *)arg = [thread isExecuting] && ![thread isFinished] ? 0 : -1;
+  [pool release];
+  return NULL;
+}
+
+int test_NSThread_isExecuting_isFinished() {
+  // The main thread.
+  NSThread *main_thread = [NSThread currentThread];
+  if (![main_thread isExecuting] || [main_thread isFinished])
+    return -1;
+
+  // A thread started by NSThread.
+  NSThreadStatusTarget *target = [NSThreadStatusTarget new];
+  NSThread *thread = [[NSThread alloc] initWithTarget:target
+                                             selector:@selector(run:)
+                                               object:nil];
+  if ([thread isExecuting] || [thread isFinished])
+    return -2;
+  [thread start];
+  while (!target->started)
+    usleep(1000);
+  if (![thread isExecuting] || [thread isFinished])
+    return -3;
+  target->should_finish = 1;
+  for (int i = 0; i < 5000 && ![thread isFinished]; i++)
+    usleep(1000);
+  if ([thread isExecuting] || ![thread isFinished])
+    return -4;
+  [thread release];
+  [target release];
+
+  // A thread created with pthread_create().
+  int pthread_result = -1;
+  pthread_t p;
+  if (pthread_create(&p, NULL, nsthread_status_pthread, &pthread_result) != 0)
+    return -5;
+  if (pthread_join(p, NULL) != 0)
+    return -6;
+  if (pthread_result != 0)
+    return -7;
+
+  return 0;
+}
+
 int second_thread_thread_size_res = -1;
 
 void *second_thread(void *arg) {
@@ -6581,6 +6645,7 @@ struct {
     FUNC_DEF(test_NSConditionLock_tryLockWhenCondition),
     FUNC_DEF(test_NSConditionLock_tryLock_contended),
     FUNC_DEF(test_NSConditionLock_producer_consumer),
+    FUNC_DEF(test_NSThread_isExecuting_isFinished),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),

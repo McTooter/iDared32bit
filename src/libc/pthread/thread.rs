@@ -257,6 +257,14 @@ fn pthread_equal(env: &mut Environment, thread1: pthread_t, thread2: pthread_t) 
     }
 }
 
+/// The touchHLE thread a `pthread_t` is for, if it's one this knows about.
+pub fn thread_id_for_pthread(env: &mut Environment, thread: pthread_t) -> Option<ThreadId> {
+    State::get(env)
+        .threads
+        .get(&thread)
+        .map(|host_object| host_object.thread_id)
+}
+
 pub fn pthread_self(env: &mut Environment) -> pthread_t {
     let current_thread = env.current_thread;
 

@@ -229,6 +229,16 @@ SEL NSSelectorFromString(NSString *);
 - (void)unlockWithCondition:(NSInteger)condition;
 @end
 
+@interface NSThread : NSObject
++ (NSThread *)currentThread;
+- (instancetype)initWithTarget:(id)target
+                      selector:(SEL)selector
+                        object:(id)argument;
+- (void)start;
+- (BOOL)isExecuting;
+- (BOOL)isFinished;
+@end
+
 // Core Graphics
 
 // (See CGAffineTransform.c for where this define comes from.)
