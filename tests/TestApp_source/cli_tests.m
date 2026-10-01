@@ -568,6 +568,91 @@ int test_vsnprintf() {
     return -57;
   }
   free(str);
+  // Test left-justification with the '-' flag
+  str = str_format("[%-5d]", 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -58;
+  }
+  free(str);
+  str = str_format("[%-5d]", -42);
+  if (strcmp(str, "[-42  ]") != 0) {
+    free(str);
+    return -59;
+  }
+  free(str);
+  str = str_format("[%-05d]", 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -60;
+  }
+  free(str);
+  str = str_format("[%0-5d]", 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -61;
+  }
+  free(str);
+  str = str_format("[%-3d]", 12345);
+  if (strcmp(str, "[12345]") != 0) {
+    free(str);
+    return -62;
+  }
+  free(str);
+  str = str_format("[%*d]", -5, 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -63;
+  }
+  free(str);
+  str = str_format("[%-6u]", 7u);
+  if (strcmp(str, "[7     ]") != 0) {
+    free(str);
+    return -64;
+  }
+  free(str);
+  str = str_format("[%-6x]", 255);
+  if (strcmp(str, "[ff    ]") != 0) {
+    free(str);
+    return -65;
+  }
+  free(str);
+  str = str_format("[%-6X]", 255);
+  if (strcmp(str, "[FF    ]") != 0) {
+    free(str);
+    return -66;
+  }
+  free(str);
+  str = str_format("[%-4c]", 'A');
+  if (strcmp(str, "[A   ]") != 0) {
+    free(str);
+    return -67;
+  }
+  free(str);
+  str = str_format("[%-8.3f]", 3.14159);
+  if (strcmp(str, "[3.142   ]") != 0) {
+    free(str);
+    return -68;
+  }
+  free(str);
+  str = str_format("[%-10.2e]", 1234.5);
+  if (strcmp(str, "[1.23e+03  ]") != 0) {
+    free(str);
+    return -69;
+  }
+  free(str);
+  str = str_format("[%-6g]", 0.5);
+  if (strcmp(str, "[0.5   ]") != 0) {
+    free(str);
+    return -70;
+  }
+  free(str);
+  str = str_format("[%-10.3s]", "Hello");
+  if (strcmp(str, "[Hel       ]") != 0) {
+    free(str);
+    return -71;
+  }
+  free(str);
 
   return 0;
 }
