@@ -10,6 +10,8 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::carbon_core::OSStatus;
 use crate::frameworks::core_audio_types::{debug_fourcc, fourcc};
 use crate::frameworks::core_foundation::cf_run_loop::{CFRunLoopMode, CFRunLoopRef};
+use crate::frameworks::core_foundation::cf_string::CFStringRef;
+use crate::frameworks::foundation::ns_string;
 use crate::mem::{guest_size_of, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr};
 use crate::Environment;
 
@@ -29,6 +31,7 @@ const kAudioSessionProperty_CurrentHardwareOutputVolume: AudioSessionPropertyID 
 const kAudioSessionProperty_PreferredHardwareIOBufferDuration: AudioSessionPropertyID =
     fourcc(b"iobd");
 const kAudioSessionProperty_PreferredHardwareSampleRate: AudioSessionPropertyID = fourcc(b"hwsr");
+const kAudioSessionProperty_AudioRoute: AudioSessionPropertyID = fourcc(b"rout");
 
 const kAudioSessionCategory_SoloAmbientSound: u32 = fourcc(b"solo");
 const kAudioSessionProperty_CurrentHardwareIOBufferDuration: u32 = fourcc(b"chbd");
@@ -122,6 +125,13 @@ fn AudioSessionGetProperty(
         }
         kAudioSessionProperty_CurrentHardwareIOBufferDuration => {
             let value: f32 = state.current_hardware_io_buffer_duration;
+            env.mem.write(out_data.cast(), value);
+        }
+        kAudioSessionProperty_AudioRoute => {
+            // The built-in speaker, as on a device with nothing plugged in.
+            // Apps may or may not release this string, so it's a static one,
+            // which ignores releases.
+            let value: CFStringRef = ns_string::get_static_str(env, "Speaker");
             env.mem.write(out_data.cast(), value);
         }
         _ => unreachable!(),
@@ -230,6 +240,7 @@ fn get_audio_session_property_size(in_ID: AudioSessionPropertyID) -> GuestUSize 
         kAudioSessionProperty_CurrentHardwareOutputNumberChannels => guest_size_of::<u32>(),
         kAudioSessionProperty_CurrentHardwareOutputVolume => guest_size_of::<f32>(),
         kAudioSessionProperty_CurrentHardwareIOBufferDuration => guest_size_of::<f32>(),
+        kAudioSessionProperty_AudioRoute => guest_size_of::<CFStringRef>(),
         _ => unimplemented!("Unimplemented property ID: {}", debug_fourcc(in_ID)),
     }
 }
