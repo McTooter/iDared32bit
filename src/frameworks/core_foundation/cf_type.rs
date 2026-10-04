@@ -8,7 +8,7 @@
 use super::{CFHashCode, CFIndex};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::foundation::NSUInteger;
-use crate::objc::Class;
+use crate::objc::{Class, ObjC};
 use crate::{msg, objc};
 use crate::{msg_class, Environment};
 
@@ -18,7 +18,21 @@ pub fn CFRetain(env: &mut Environment, object: CFTypeRef) -> CFTypeRef {
     assert!(!object.is_null()); // not allowed, unlike for normal objc objects
     objc::retain(env, object)
 }
+
 pub fn CFRelease(env: &mut Environment, object: CFTypeRef) {
+    if object.is_null() {
+        return;
+    }
+    // Some apps try to release the same object twice when closing. The first
+    // release clears the memory, so we can detect this and skip the already
+    // freed object.
+    if ObjC::read_isa(object, &env.mem).is_null() {
+        log!(
+            "Warning: CFRelease called on already-freed object {:?}",
+            object
+        );
+        return;
+    }
     objc::release(env, object);
 }
 

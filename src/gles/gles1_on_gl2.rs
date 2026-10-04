@@ -286,6 +286,7 @@ const GET_PARAMS: ParamTable = ParamTable(&[
     (gl21::VERTEX_ARRAY_TYPE, ParamType::Int, 1),
     // OES_framebuffer_object -> EXT_framebuffer_object
     (gl21::FRAMEBUFFER_BINDING_EXT, ParamType::Int, 1),
+    (gl21::MAX_RENDERBUFFER_SIZE_EXT, ParamType::Int, 1),
     (gl21::RENDERBUFFER_BINDING_EXT, ParamType::Int, 1),
     // EXT_texture_lod_bias
     (gl21::MAX_TEXTURE_LOD_BIAS_EXT, ParamType::Float, 1),
@@ -294,6 +295,22 @@ const GET_PARAMS: ParamTable = ParamTable(&[
     // OES_matrix_palette -> ARB_vertex_blend
     (gl21::MAX_VERTEX_UNITS_ARB, ParamType::Int, 1),
 ]);
+
+/// Parameters that only exist in OpenGL ES 2.0, which apps sometimes query to
+/// find out whether they can use shaders. OpenGL ES 1.1 rejects them with
+/// `GL_INVALID_ENUM` and leaves the result untouched.
+const ES2_ONLY_GET_PARAMS: &[GLenum] = &[
+    0x8DF8, // GL_SHADER_BINARY_FORMATS
+    0x8DF9, // GL_NUM_SHADER_BINARY_FORMATS
+    0x8DFA, // GL_SHADER_COMPILER
+    0x8DFB, // GL_MAX_VERTEX_UNIFORM_VECTORS
+    0x8DFC, // GL_MAX_VARYING_VECTORS
+    0x8DFD, // GL_MAX_FRAGMENT_UNIFORM_VECTORS
+    gl21::MAX_VERTEX_ATTRIBS,
+    gl21::MAX_TEXTURE_IMAGE_UNITS,
+    gl21::MAX_VERTEX_TEXTURE_IMAGE_UNITS,
+    gl21::MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+];
 
 const UNSUPPORTED_GET_PARAMS: ParamTable = ParamTable(&[
     (gl21::COMPRESSED_TEXTURE_FORMATS, ParamType::Int, 0), // Dynamically sized
@@ -388,6 +405,9 @@ const UNSUPPORTED_TEX_PARAMS: ParamTable =
     ParamTable(&[(gl21::TEXTURE_MAX_LEVEL, ParamType::Float, 1)]);
 
 pub struct GLES1OnGL2State {
+    /// An error this layer raised itself, which glGetError() returns before
+    /// any from the underlying OpenGL.
+    pending_error: Option<GLenum>,
     pointer_is_fixed_point: [bool; ARRAYS.len()],
     fixed_point_texture_units: HashSet<GLenum>,
     fixed_point_translation_buffers: [Vec<GLfloat>; ARRAYS.len()],
@@ -407,6 +427,7 @@ impl GLESContext for GLES1OnGL2Context {
         Ok(Self {
             gl_ctx: window.create_gl_context(GLVersion::GL21Compat)?,
             state: GLES1OnGL2State {
+                pending_error: None,
                 pointer_is_fixed_point: [false; ARRAYS.len()],
                 fixed_point_texture_units: HashSet::new(),
                 fixed_point_translation_buffers: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
@@ -462,6 +483,21 @@ pub struct GLES1OnGL2<'a> {
 }
 
 impl GLES1OnGL2<'_> {
+    /// If `pname` only exists in OpenGL ES 2.0, raise `GL_INVALID_ENUM` and
+    /// return `true`, so the caller leaves the result untouched.
+    fn reject_es2_only_get_param(&mut self, func: &str, pname: GLenum) -> bool {
+        if !ES2_ONLY_GET_PARAMS.contains(&pname) {
+            return false;
+        }
+        log_dbg!(
+            "{}({:#x}): OpenGL ES 2.0 only, GL_INVALID_ENUM",
+            func,
+            pname
+        );
+        self.state.pending_error = Some(gl21::INVALID_ENUM);
+        true
+    }
+
     /// If any arrays with fixed-point data are in use at the time of a draw
     /// call, this function will convert the data to floating-point and
     /// replace the pointers. [Self::restore_fixed_point_arrays] can be called
@@ -681,6 +717,9 @@ impl GLES for GLES1OnGL2<'_> {
     }
     // Generic state manipulation
     unsafe fn GetError(&mut self) -> GLenum {
+        if let Some(error) = self.state.pending_error.take() {
+            return error;
+        }
         gl21::GetError()
     }
     unsafe fn Enable(&mut self, cap: GLenum) {
@@ -746,6 +785,9 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::DisableClientState(array);
     }
     unsafe fn GetBooleanv(&mut self, pname: GLenum, params: *mut GLboolean) {
+        if self.reject_es2_only_get_param("glGetBooleanv", pname) {
+            return;
+        }
         let (type_, count) = GET_PARAMS.get_type_info(pname);
         match type_ {
             ParamType::Boolean => {
@@ -768,6 +810,9 @@ impl GLES for GLES1OnGL2<'_> {
     }
     // TODO: GetFixedv
     unsafe fn GetFloatv(&mut self, pname: GLenum, params: *mut GLfloat) {
+        if self.reject_es2_only_get_param("glGetFloatv", pname) {
+            return;
+        }
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
         match type_ {
             ParamType::Float | ParamType::FloatSpecial => {
@@ -777,6 +822,9 @@ impl GLES for GLES1OnGL2<'_> {
         }
     }
     unsafe fn GetIntegerv(&mut self, pname: GLenum, params: *mut GLint) {
+        if self.reject_es2_only_get_param("glGetIntegerv", pname) {
+            return;
+        }
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
         // TODO: type conversion
         let allowed_float = type_ == ParamType::Float && pname == gl21::POINT_SIZE_MAX;
@@ -1508,7 +1556,13 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::IsTexture(texture)
     }
     unsafe fn BindTexture(&mut self, target: GLenum, texture: GLuint) {
-        assert!(target == gl21::TEXTURE_2D);
+        if target != gl21::TEXTURE_2D {
+            log!(
+                "Tolerating unhandled texture target 0x{:x} in glBindTexture",
+                target
+            );
+            return;
+        }
         gl21::BindTexture(target, texture)
     }
     unsafe fn TexParameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {

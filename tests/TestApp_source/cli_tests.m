@@ -568,6 +568,135 @@ int test_vsnprintf() {
     return -57;
   }
   free(str);
+  // Test left-justification with the '-' flag
+  str = str_format("[%-5d]", 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -58;
+  }
+  free(str);
+  str = str_format("[%-5d]", -42);
+  if (strcmp(str, "[-42  ]") != 0) {
+    free(str);
+    return -59;
+  }
+  free(str);
+  str = str_format("[%-05d]", 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -60;
+  }
+  free(str);
+  str = str_format("[%0-5d]", 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -61;
+  }
+  free(str);
+  str = str_format("[%-3d]", 12345);
+  if (strcmp(str, "[12345]") != 0) {
+    free(str);
+    return -62;
+  }
+  free(str);
+  str = str_format("[%*d]", -5, 42);
+  if (strcmp(str, "[42   ]") != 0) {
+    free(str);
+    return -63;
+  }
+  free(str);
+  str = str_format("[%-6u]", 7u);
+  if (strcmp(str, "[7     ]") != 0) {
+    free(str);
+    return -64;
+  }
+  free(str);
+  str = str_format("[%-6x]", 255);
+  if (strcmp(str, "[ff    ]") != 0) {
+    free(str);
+    return -65;
+  }
+  free(str);
+  str = str_format("[%-6X]", 255);
+  if (strcmp(str, "[FF    ]") != 0) {
+    free(str);
+    return -66;
+  }
+  free(str);
+  str = str_format("[%-4c]", 'A');
+  if (strcmp(str, "[A   ]") != 0) {
+    free(str);
+    return -67;
+  }
+  free(str);
+  str = str_format("[%-8.3f]", 3.14159);
+  if (strcmp(str, "[3.142   ]") != 0) {
+    free(str);
+    return -68;
+  }
+  free(str);
+  str = str_format("[%-10.2e]", 1234.5);
+  if (strcmp(str, "[1.23e+03  ]") != 0) {
+    free(str);
+    return -69;
+  }
+  free(str);
+  str = str_format("[%-6g]", 0.5);
+  if (strcmp(str, "[0.5   ]") != 0) {
+    free(str);
+    return -70;
+  }
+  free(str);
+  str = str_format("[%-10.3s]", "Hello");
+  if (strcmp(str, "[Hel       ]") != 0) {
+    free(str);
+    return -71;
+  }
+  free(str);
+
+  return 0;
+}
+
+int test_CC_SHA256() {
+  // SHA-256 of "hello world"
+  const unsigned char expected[CC_SHA256_DIGEST_LENGTH] = {
+      0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08, 0xa5, 0x2e, 0x52,
+      0xd7, 0xda, 0x7d, 0xab, 0xfa, 0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53,
+      0x80, 0xee, 0x90, 0x88, 0xf7, 0xac, 0xe2, 0xef, 0xcd, 0xe9};
+  unsigned char md[CC_SHA256_DIGEST_LENGTH];
+
+  CC_SHA256("hello world", 11, md);
+  if (memcmp(md, expected, sizeof(md)) != 0)
+    return -1;
+
+  CC_SHA256_CTX ctx, copy;
+  CC_SHA256_Init(&ctx);
+  CC_SHA256_Update(&ctx, "hello ", 6);
+  copy = ctx;
+  CC_SHA256_Update(&ctx, "world", 5);
+  CC_SHA256_Final(md, &ctx);
+  if (memcmp(md, expected, sizeof(md)) != 0)
+    return -2;
+
+  // A copied context carries on independently.
+  CC_SHA256_Update(&copy, "world", 5);
+  CC_SHA256_Final(md, &copy);
+  if (memcmp(md, expected, sizeof(md)) != 0)
+    return -3;
+
+  // Several blocks, fed in pieces that don't line up with them.
+  unsigned char data[200];
+  for (int i = 0; i < 200; i++)
+    data[i] = i;
+  unsigned char oneshot[CC_SHA256_DIGEST_LENGTH];
+  CC_SHA256(data, 200, oneshot);
+  CC_SHA256_Init(&ctx);
+  CC_SHA256_Update(&ctx, data, 1);
+  CC_SHA256_Update(&ctx, data + 1, 70);
+  CC_SHA256_Update(&ctx, data + 71, 129);
+  CC_SHA256_Final(md, &ctx);
+  if (memcmp(md, oneshot, sizeof(md)) != 0)
+    return -4;
 
   return 0;
 }
@@ -1696,6 +1825,118 @@ int test_cond_timedwait_past_deadline() {
   return 0;
 }
 
+static struct timespec timespec_from_now_ms(int ms) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  struct timespec ts = {.tv_sec = tv.tv_sec,
+                        .tv_nsec = tv.tv_usec * 1000 + ms * 1000000};
+  while (ts.tv_nsec >= 1000000000) {
+    ts.tv_sec += 1;
+    ts.tv_nsec -= 1000000000;
+  }
+  return ts;
+}
+
+static long us_since(struct timeval *start) {
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  return (now.tv_sec - start->tv_sec) * 1000000 +
+         (now.tv_usec - start->tv_usec);
+}
+
+void *timedwait_forever_waiter(void *arg) {
+  struct timedwait_signaler_args *a = arg;
+  pthread_mutex_lock(a->mu);
+  pthread_cond_wait(a->cv, a->mu);
+  pthread_mutex_unlock(a->mu);
+  return NULL;
+}
+
+// Test: when every other thread is blocked indefinitely, a timedwait must
+// still time out rather than being treated as a deadlock.
+int test_cond_timedwait_times_out_when_all_blocked() {
+  pthread_mutex_t mu, other_mu;
+  pthread_cond_t cv, other_cv;
+  if (pthread_mutex_init(&mu, NULL) != 0 ||
+      pthread_mutex_init(&other_mu, NULL) != 0)
+    return -1;
+  if (pthread_cond_init(&cv, NULL) != 0 ||
+      pthread_cond_init(&other_cv, NULL) != 0)
+    return -2;
+
+  struct timedwait_signaler_args other_args = {&other_mu, &other_cv};
+  pthread_t p;
+  if (pthread_create(&p, NULL, timedwait_forever_waiter, &other_args) != 0)
+    return -3;
+  usleep(10000); // let the other thread reach its wait
+
+  struct timeval start;
+  gettimeofday(&start, NULL);
+  struct timespec ts = timespec_from_now_ms(50);
+  pthread_mutex_lock(&mu);
+  int result = pthread_cond_timedwait(&cv, &mu, &ts);
+  pthread_mutex_unlock(&mu);
+  long elapsed = us_since(&start);
+
+  pthread_mutex_lock(&other_mu);
+  pthread_cond_signal(&other_cv);
+  pthread_mutex_unlock(&other_mu);
+  pthread_join(p, NULL);
+
+  pthread_cond_destroy(&cv);
+  pthread_cond_destroy(&other_cv);
+  pthread_mutex_destroy(&mu);
+  pthread_mutex_destroy(&other_mu);
+
+  if (result != ETIMEDOUT)
+    return -4;
+  if (elapsed < 40000)
+    return -5;
+  return 0;
+}
+
+void *timedwait_mutex_holder(void *arg) {
+  struct timedwait_signaler_args *a = arg;
+  pthread_mutex_lock(a->mu);
+  usleep(100000); // hold the mutex past the waiter's deadline
+  pthread_mutex_unlock(a->mu);
+  return NULL;
+}
+
+// Test: if the deadline passes while another thread holds the mutex, the
+// timed-out thread must wait for the mutex, then return ETIMEDOUT.
+int test_cond_timedwait_timeout_waits_for_mutex() {
+  pthread_mutex_t mu;
+  pthread_cond_t cv;
+  if (pthread_mutex_init(&mu, NULL) != 0)
+    return -1;
+  if (pthread_cond_init(&cv, NULL) != 0)
+    return -2;
+
+  struct timedwait_signaler_args args = {&mu, &cv};
+  pthread_t p;
+  struct timeval start;
+  gettimeofday(&start, NULL);
+  struct timespec ts = timespec_from_now_ms(20);
+  pthread_mutex_lock(&mu);
+  if (pthread_create(&p, NULL, timedwait_mutex_holder, &args) != 0)
+    return -3;
+  // The holder thread takes the mutex while this one waits.
+  int result = pthread_cond_timedwait(&cv, &mu, &ts);
+  long elapsed = us_since(&start);
+  pthread_mutex_unlock(&mu);
+  pthread_join(p, NULL);
+
+  pthread_cond_destroy(&cv);
+  pthread_mutex_destroy(&mu);
+
+  if (result != ETIMEDOUT)
+    return -4;
+  if (elapsed < 90000)
+    return -5;
+  return 0;
+}
+
 struct timedwait_broadcast_args {
   pthread_mutex_t *mu;
   pthread_cond_t *cv;
@@ -2130,6 +2371,121 @@ int test_NSConditionLock_producer_consumer() {
     return -3;
 
   [nscl_pc_lock release];
+  return 0;
+}
+
+@interface NSThreadStatusTarget : NSObject {
+@public
+  volatile int started;
+  volatile int should_finish;
+}
+- (void)run:(id)unused;
+@end
+
+@implementation NSThreadStatusTarget
+- (void)run:(id)unused {
+  started = 1;
+  while (!should_finish)
+    usleep(1000);
+}
+@end
+
+void *nsthread_status_pthread(void *arg) {
+  // A thread not started by NSThread gets an NSThread from currentThread.
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSThread *thread = [NSThread currentThread];
+  *(int *)arg = [thread isExecuting] && ![thread isFinished] ? 0 : -1;
+  [pool release];
+  return NULL;
+}
+
+int test_NSThread_isExecuting_isFinished() {
+  // The main thread.
+  NSThread *main_thread = [NSThread currentThread];
+  if (![main_thread isExecuting] || [main_thread isFinished])
+    return -1;
+
+  // A thread started by NSThread.
+  NSThreadStatusTarget *target = [NSThreadStatusTarget new];
+  NSThread *thread = [[NSThread alloc] initWithTarget:target
+                                             selector:@selector(run:)
+                                               object:nil];
+  if ([thread isExecuting] || [thread isFinished])
+    return -2;
+  [thread start];
+  while (!target->started)
+    usleep(1000);
+  if (![thread isExecuting] || [thread isFinished])
+    return -3;
+  target->should_finish = 1;
+  for (int i = 0; i < 5000 && ![thread isFinished]; i++)
+    usleep(1000);
+  if ([thread isExecuting] || ![thread isFinished])
+    return -4;
+  [thread release];
+  [target release];
+
+  // A thread created with pthread_create().
+  int pthread_result = -1;
+  pthread_t p;
+  if (pthread_create(&p, NULL, nsthread_status_pthread, &pthread_result) != 0)
+    return -5;
+  if (pthread_join(p, NULL) != 0)
+    return -6;
+  if (pthread_result != 0)
+    return -7;
+
+  return 0;
+}
+
+@interface NSThreadExitTarget : NSObject {
+@public
+  volatile int reached_exit;
+  volatile int ran_after_exit;
+}
+- (void)run:(id)unused;
+@end
+
+@implementation NSThreadExitTarget
+- (void)run:(id)unused {
+  reached_exit = 1;
+  [NSThread exit];
+  ran_after_exit = 1;
+}
+@end
+
+void *pthread_exit_thread(void *arg) {
+  *(int *)arg = 1;
+  pthread_exit((void *)42);
+  *(int *)arg = 2;
+  return NULL;
+}
+
+int test_NSThread_exit_pthread_exit() {
+  NSThreadExitTarget *target = [NSThreadExitTarget new];
+  NSThread *thread = [[NSThread alloc] initWithTarget:target
+                                             selector:@selector(run:)
+                                               object:nil];
+  [thread start];
+  for (int i = 0; i < 5000 && ![thread isFinished]; i++)
+    usleep(1000);
+  if (!target->reached_exit || target->ran_after_exit)
+    return -1;
+  if ([thread isExecuting] || ![thread isFinished])
+    return -2;
+  [thread release];
+  [target release];
+
+  int progress = 0;
+  void *ret = NULL;
+  pthread_t p;
+  if (pthread_create(&p, NULL, pthread_exit_thread, &progress) != 0)
+    return -3;
+  if (pthread_join(p, &ret) != 0)
+    return -4;
+  if (progress != 1 || ret != (void *)42)
+    return -5;
+
   return 0;
 }
 
@@ -6482,6 +6838,7 @@ struct {
 #endif
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
+    FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_sscanf),
     FUNC_DEF(test_swscanf),
     FUNC_DEF(test_realloc),
@@ -6526,6 +6883,8 @@ struct {
     FUNC_DEF(test_cond_var_static),
     FUNC_DEF(test_cond_timedwait_signaled_before_timeout),
     FUNC_DEF(test_cond_timedwait_past_deadline),
+    FUNC_DEF(test_cond_timedwait_times_out_when_all_blocked),
+    FUNC_DEF(test_cond_timedwait_timeout_waits_for_mutex),
     FUNC_DEF(test_cond_timedwait_broadcast),
     FUNC_DEF(test_cond_timedwait_flag_not_sticky),
     FUNC_DEF(test_cond_timedwait_sibling_not_dropped),
@@ -6536,6 +6895,8 @@ struct {
     FUNC_DEF(test_NSConditionLock_tryLockWhenCondition),
     FUNC_DEF(test_NSConditionLock_tryLock_contended),
     FUNC_DEF(test_NSConditionLock_producer_consumer),
+    FUNC_DEF(test_NSThread_isExecuting_isFinished),
+    FUNC_DEF(test_NSThread_exit_pthread_exit),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),

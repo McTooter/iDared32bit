@@ -283,6 +283,11 @@ Other options:
     --allow-network-access
         Allow apps running in touchHLE to access the Internet and the local network.
 
+        Without this, apps see what an iPhone in airplane mode would: they can
+        set up network connections, but connecting or sending to another
+        machine fails straight away. Most apps that use the network handle
+        that, as they would without a signal.
+
     --ignore-gl-errors
         Ignore host OpenGL errors as queried by glGetError function.
         This only affects return value of glGetError as seen by the guest

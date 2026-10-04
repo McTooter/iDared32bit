@@ -15,13 +15,15 @@ use crate::environment::Environment;
 use crate::export_c_func;
 use crate::frameworks::carbon_core::{paramErr, OSStatus};
 use crate::frameworks::core_audio_types::{
-    fourcc, kAudioFormatFlagIsAlignedHigh, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked,
-    kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM, AudioStreamBasicDescription,
+    debug_fourcc, fourcc, kAudioFormatFlagIsAlignedHigh, kAudioFormatFlagIsFloat,
+    kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM,
+    AudioStreamBasicDescription,
 };
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, SafeRead};
 
 const kAudioUnitType_Output: u32 = fourcc(b"auou");
 const kAudioUnitSubType_RemoteIO: u32 = fourcc(b"rioc");
+const kAudioUnitSubType_VoiceProcessingIO: u32 = fourcc(b"vpio");
 const kAudioUnitManufacturer_Apple: u32 = fourcc(b"appl");
 
 #[derive(Default)]
@@ -125,9 +127,25 @@ fn AudioComponentFindNext(
     assert!(in_component.is_null());
 
     let audio_comp_descr = env.mem.read(in_desc);
-    assert!(audio_comp_descr.component_type == kAudioUnitType_Output);
-    assert!(audio_comp_descr.component_sub_type == kAudioUnitSubType_RemoteIO);
-    assert!(audio_comp_descr.component_manufacturer == kAudioUnitManufacturer_Apple);
+    let component_type = audio_comp_descr.component_type;
+    let component_sub_type = audio_comp_descr.component_sub_type;
+    let component_manufacturer = audio_comp_descr.component_manufacturer;
+    // Only output is supported. VoiceProcessingIO is RemoteIO with echo
+    // cancellation for voice chat, so it's treated as RemoteIO.
+    let is_supported = component_type == kAudioUnitType_Output
+        && (component_sub_type == kAudioUnitSubType_RemoteIO
+            || component_sub_type == kAudioUnitSubType_VoiceProcessingIO)
+        && component_manufacturer == kAudioUnitManufacturer_Apple;
+    if !is_supported {
+        // As on a device without such a component.
+        log!(
+            "Warning: AudioComponentFindNext() for unsupported component {} {} {}, returning NULL",
+            debug_fourcc(component_type),
+            debug_fourcc(component_sub_type),
+            debug_fourcc(component_manufacturer)
+        );
+        return AudioComponent::null();
+    }
 
     let state = State::get(&mut env.framework_state);
     if state.audio_component.is_null() {

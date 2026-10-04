@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-//! touchHLE is a high-level emulator (HLE) for iPhone OS applications.
+//! touchHLE is a high-level emulator (HLE) for early iOS apps.
 //!
 //! In various places, the terms "guest" and "host" are used to distinguish
 //! between the emulated application (the "guest") and the emulator itself (the
@@ -205,6 +205,40 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         return Ok(());
     }
 
+    loop {
+        if !run_app(
+            bundle_path.clone(),
+            just_info,
+            &option_args,
+            &options,
+            &app_args,
+        )? {
+            break Ok(());
+        }
+
+        // The app exited or the user pressed Home/Esc. In headless mode there
+        // is no app picker to return to, so quit.
+        if options.headless {
+            break Ok(());
+        }
+        // Show the picker on the next iteration rather than relaunching the
+        // directly-launched app.
+        bundle_path = None;
+    }
+}
+
+/// Run an app or the app picker.
+/// Returns `true` if it should return to the picker afterwards.
+fn run_app(
+    bundle_path: Option<PathBuf>,
+    just_info: bool,
+    option_args: &[String],
+    options: &options::Options,
+    app_args: &Option<Vec<String>>,
+) -> Result<bool, String> {
+    let mut option_args = option_args.to_vec();
+    let mut options = options.clone();
+
     let bundle_path = if let Some(bundle_path) = bundle_path {
         bundle_path
     } else {
@@ -306,7 +340,7 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     }
 
     if just_info {
-        return Ok(());
+        return Ok(false);
     }
 
     // Apply options from files
@@ -357,13 +391,18 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     echo!();
 
     // Apply command-line options
-    for option_arg in option_args {
-        let parse_result = options.parse_argument(&option_arg);
+    for option_arg in &option_args {
+        let parse_result = options.parse_argument(option_arg);
         assert!(parse_result == Ok(true));
     }
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        Environment::new(bundle, fs, options.clone(), app_args.unwrap_or_default())
+        Environment::new(
+            bundle,
+            fs,
+            options.clone(),
+            app_args.clone().unwrap_or_default(),
+        )
     }));
     let env = match res {
         Ok(ret) => match ret {
@@ -389,6 +428,5 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
             std::panic::resume_unwind(e)
         }
     };
-    env.run();
-    Ok(())
+    Ok(env.run())
 }

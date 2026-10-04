@@ -13,6 +13,12 @@
 //! any of blocking functions.
 //! (Check related functions for more details and remediation.)
 //!
+//! When network access is off (the default, see `--allow-network-access`),
+//! sockets behave like on a device in airplane mode: apps can create, set up
+//! and bind them, but they're bound to this machine only, and connecting or
+//! sending to anywhere else fails straight away with [ENETUNREACH]. Apps
+//! commonly set up networking when they start, and handle being offline.
+//!
 //! Other note: Rust std::net APIs are "too high level" sometimes,
 //! thus some workarounds need to be implemented.
 //! (e.g. [TcpListener] does both bind() and listen() on a call
@@ -22,8 +28,13 @@
 //! - [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/html/index-wide.html)
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::libc::errno::{set_errno, EBADF, ECONNRESET, EINVAL, EPROTONOSUPPORT};
-use crate::libc::posix_io::{close, find_or_create_socket, is_socket, FileDescriptor};
+use crate::libc::errno::{
+    set_errno, EAGAIN, EBADF, ECONNREFUSED, ECONNRESET, EHOSTUNREACH, EINVAL, ENETUNREACH,
+    ETIMEDOUT,
+};
+use crate::libc::posix_io::{
+    close, find_or_create_socket, is_nonblocking, is_socket, FileDescriptor,
+};
 use crate::libc::time::timeval;
 use crate::mem::{
     guest_size_of, ConstPtr, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, Ptr, SafeRead,
@@ -46,12 +57,36 @@ const SOL_SOCKET: i32 = 0xffff;
 const SO_DEBUG: i32 = 0x1;
 const SO_REUSEADDR: i32 = 0x4;
 const SO_BROADCAST: i32 = 0x20;
+const SO_KEEPALIVE: i32 = 0x8;
+const SO_LINGER: i32 = 0x80;
+const SO_SNDBUF: i32 = 0x1001;
+const SO_RCVBUF: i32 = 0x1002;
+const SO_SNDTIMEO: i32 = 0x1005;
+const SO_RCVTIMEO: i32 = 0x1006;
+const SO_NOSIGPIPE: i32 = 0x1022;
+const TCP_NODELAY: i32 = 0x1;
 const SO_ERROR: i32 = 0x1007;
 
 #[allow(non_camel_case_types)]
 pub type sa_family_t = u8;
 
 const FD_SETSIZE: i32 = 1024;
+
+/// Whether network access is off and `address` isn't on this machine, so
+/// reaching it should fail as it would in airplane mode.
+fn is_offline_destination(env: &Environment, address: &SocketAddrV4) -> bool {
+    !env.options.network_access && !address.ip().is_loopback()
+}
+
+/// recv() flags.
+const MSG_TRUNC: i32 = 0x10;
+const MSG_DONTWAIT: i32 = 0x80;
+
+/// How long connect() waits for a server to answer. touchHLE runs on one host
+/// thread, so while connect() waits, everything freezes. A real device gives
+/// up after about a minute and a quarter, but an app that can't reach its
+/// server, perhaps because it no longer exists, should find out much sooner.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
@@ -148,14 +183,7 @@ fn socket(env: &mut Environment, domain: i32, type_: i32, protocol: i32) -> File
     set_errno(env, 0);
 
     if !env.options.network_access {
-        log_dbg!(
-            "Network access is disabled, socket({}, {}, {}) => -1",
-            domain,
-            type_,
-            protocol
-        );
-        set_errno(env, EPROTONOSUPPORT);
-        return -1;
+        log_once!("Network access is off, so sockets work as in airplane mode: connecting or sending to other machines will fail. Use --allow-network-access to change this.");
     }
 
     assert_eq!(domain, AF_INET);
@@ -237,7 +265,7 @@ fn setsockopt(
         option_len
     );
 
-    if option_name == SO_DEBUG {
+    if level == SOL_SOCKET && option_name == SO_DEBUG {
         set_errno(env, EINVAL);
         log!(
             "Warning: Ignore setsockopt SO_DEBUG at level {} for socket {} => -1",
@@ -255,22 +283,83 @@ fn setsockopt(
 
     assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
 
-    assert_eq!(level, SOL_SOCKET);
-    // TODO: SO_REUSEADDR is not supported in std::net (and not so portable)
-    assert!(option_name == SO_REUSEADDR || option_name == SO_BROADCAST);
-
-    assert_eq!(option_len, guest_size_of::<i32>());
-    let tmp: ConstPtr<i32> = option_value.cast();
-    assert_eq!(env.mem.read(tmp), 1);
-
-    let options = &mut State::get_mut(env)
-        .sockets
-        .get_mut(&socket)
-        .unwrap()
-        .options;
-    options.insert(option_name);
+    match (level, option_name) {
+        // TODO: SO_REUSEADDR is not supported in std::net (and not so portable)
+        (SOL_SOCKET, SO_REUSEADDR | SO_BROADCAST) => {
+            assert_eq!(option_len, guest_size_of::<i32>());
+            let tmp: ConstPtr<i32> = option_value.cast();
+            let enabled = env.mem.read(tmp) != 0;
+            let options = &mut State::get_mut(env)
+                .sockets
+                .get_mut(&socket)
+                .unwrap()
+                .options;
+            if enabled {
+                options.insert(option_name);
+            } else {
+                options.remove(&option_name);
+            }
+        }
+        // Options that only tune how the connection behaves. The host's
+        // sockets work without them, so they're accepted and ignored.
+        (
+            SOL_SOCKET,
+            SO_KEEPALIVE | SO_LINGER | SO_SNDBUF | SO_RCVBUF | SO_SNDTIMEO | SO_RCVTIMEO
+            | SO_NOSIGPIPE,
+        )
+        | (IPPROTO_TCP, TCP_NODELAY) => {
+            log_dbg!(
+                "Ignoring setsockopt({}, {:#x}, {:#x}, ...)",
+                socket,
+                level,
+                option_name
+            );
+        }
+        // A real device accepts any valid option, so don't fail.
+        _ => {
+            log!(
+                "Warning: Ignoring unknown setsockopt({}, {:#x}, {:#x}, ...)",
+                socket,
+                level,
+                option_name
+            );
+        }
+    }
 
     0 // Success
+}
+
+/// Write an address to an app's `struct sockaddr` buffer and its length, as
+/// for getsockname(), accept() and recvfrom(). The length is the buffer's size
+/// on input: as much of the address as fits is written, and on output it is
+/// the address's real size, like a real device.
+fn write_sockaddr(
+    env: &mut Environment,
+    address: MutPtr<sockaddr>,
+    address_len: MutPtr<socklen_t>,
+    value: sockaddr,
+) {
+    let size = guest_size_of::<sockaddr>();
+    let buffer_size = env.mem.read(address_len);
+    if buffer_size >= size {
+        env.mem.write(address, value);
+    } else {
+        let bytes: [u8; 16] = unsafe { std::mem::transmute(value) };
+        env.mem
+            .bytes_at_mut(address.cast(), buffer_size)
+            .copy_from_slice(&bytes[..buffer_size as usize]);
+    }
+    env.mem.write(address_len, size);
+}
+
+/// Check the length of an address an app passes in. Apps may pass a bigger
+/// buffer, such as a `struct sockaddr_storage`, which is fine as long as it
+/// holds an IPv4 address.
+fn assert_sockaddr_len(address_len: socklen_t) {
+    assert!(
+        address_len >= guest_size_of::<sockaddr>(),
+        "address length {address_len} is too short for an IPv4 address"
+    );
 }
 
 fn getsockname(
@@ -289,20 +378,29 @@ fn getsockname(
     let type_ = socket_host_object.type_;
     assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
 
-    assert!(socket_host_object.tcp_listener.is_none());
-    assert!(socket_host_object.pending_tcp_stream.is_none());
-
-    match socket_host_object.type_ {
-        SOCK_DGRAM => {
-            let udp_socket = socket_host_object.udp_socket.as_ref().unwrap();
-            let socket_addr = udp_socket.local_addr().unwrap();
-            let local_guest_addr = sockaddr::from_sockaddr_v4(&socket_addr);
-            assert_eq!(env.mem.read(address_len), guest_size_of::<sockaddr>());
-            env.mem.write(address, local_guest_addr);
-        }
-        SOCK_STREAM => unimplemented!(),
-        _ => unreachable!(),
-    }
+    // The host socket for whatever state the socket is in, if any.
+    let local_addr = if let Some(udp_socket) = &socket_host_object.udp_socket {
+        Some(udp_socket.local_addr())
+    } else if let Some(tcp_stream) = &socket_host_object.tcp_stream {
+        Some(tcp_stream.local_addr())
+    } else if let Some(tcp_stream) = &socket_host_object.pending_tcp_stream {
+        Some(tcp_stream.local_addr())
+    } else {
+        socket_host_object
+            .tcp_listener
+            .as_ref()
+            .map(|tcp_listener| tcp_listener.local_addr())
+    };
+    let local_addr = match local_addr {
+        Some(Ok(SocketAddr::V4(local_addr))) => local_addr,
+        // A socket that isn't bound or connected yet has no address. Like a
+        // real device, report 0.0.0.0, port 0.
+        None => SocketAddrV4::new(std::net::Ipv4Addr::UNSPECIFIED, 0),
+        Some(Ok(SocketAddr::V6(_))) => unreachable!(), // Only IPv4 is supported.
+        Some(Err(error)) => panic!("getsockname: socket {socket} encountered IO error: {error}"),
+    };
+    let local_guest_addr = sockaddr::from_sockaddr_v4(&SocketAddr::V4(local_addr));
+    write_sockaddr(env, address, address_len, local_guest_addr);
 
     0 // Success
 }
@@ -323,7 +421,7 @@ fn bind(
     let type_ = socket_host_object.type_;
     assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
 
-    assert_eq!(address_len, guest_size_of::<sockaddr>());
+    assert_sockaddr_len(address_len);
     let sockaddr_val = env.mem.read(address);
     log_dbg!(
         "bind({}, {:?} ({:?}), {})",
@@ -333,7 +431,15 @@ fn bind(
         address_len
     );
 
-    let socket_address = sockaddr_val.to_sockaddr_v4();
+    let mut socket_address = sockaddr_val.to_sockaddr_v4();
+    if !env.options.network_access && !socket_address.ip().is_loopback() {
+        // Only on this machine, so nothing is exposed to the network.
+        log_dbg!(
+            "bind: network access is off, binding to localhost instead of {}",
+            socket_address.ip()
+        );
+        socket_address.set_ip(std::net::Ipv4Addr::LOCALHOST);
+    }
     let type_str = match type_ {
         SOCK_STREAM => "TCP",
         SOCK_DGRAM => "UDP",
@@ -415,7 +521,7 @@ fn connect(
     let type_ = socket_host_object.type_;
     assert!(type_ == SOCK_STREAM);
 
-    assert_eq!(address_len, guest_size_of::<sockaddr>());
+    assert_sockaddr_len(address_len);
     let sockaddr_val = env.mem.read(address);
     log_dbg!(
         "connect({:?} ({:?}), {})",
@@ -427,13 +533,43 @@ fn connect(
     let socket_address = sockaddr_val.to_sockaddr_v4();
     log_dbg!("connect: socket address {:?}", socket_address);
 
+    if is_offline_destination(env, &socket_address) {
+        log!(
+            "Network access is off, connect({}) to {} fails with ENETUNREACH",
+            socket,
+            socket_address
+        );
+        set_errno(env, ENETUNREACH);
+        return -1;
+    }
+
     assert!(State::get(env)
         .sockets
         .get(&socket)
         .unwrap()
         .tcp_stream
         .is_none());
-    let host_stream = TcpStream::connect(socket_address).unwrap();
+    let host_stream =
+        match TcpStream::connect_timeout(&SocketAddr::V4(socket_address), CONNECT_TIMEOUT) {
+            Ok(host_stream) => host_stream,
+            Err(error) => {
+                // Report the failure to the app, as a real device would.
+                let errno = match error.kind() {
+                    io::ErrorKind::ConnectionRefused => ECONNREFUSED,
+                    io::ErrorKind::HostUnreachable => EHOSTUNREACH,
+                    io::ErrorKind::NetworkUnreachable => ENETUNREACH,
+                    _ => ETIMEDOUT,
+                };
+                log!(
+                    "Warning: connect({}) to {} failed with {}, returning -1",
+                    socket,
+                    socket_address,
+                    error
+                );
+                set_errno(env, errno);
+                return -1;
+            }
+        };
     // We set host socket as non-blocking in order to have
     // more control of how and when it's used
     host_stream.set_nonblocking(true).unwrap();
@@ -776,9 +912,7 @@ fn accept(
         State::get_mut(env).sockets.insert(new_fd, host_object);
         assert!(!address.is_null());
         let peer_guest_addr = sockaddr::from_sockaddr_v4(&addr);
-        env.mem.write(address, peer_guest_addr);
-        assert_eq!(guest_size_of::<sockaddr>(), env.mem.read(address_len));
-        env.mem.write(address_len, guest_size_of::<sockaddr>());
+        write_sockaddr(env, address, address_len, peer_guest_addr);
         return new_fd;
     }
 
@@ -791,6 +925,11 @@ fn accept(
             unimplemented!()
         }
         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+            if is_nonblocking(env, socket) {
+                // What a non-blocking socket is for: try again later.
+                set_errno(env, EAGAIN);
+                return -1;
+            }
             // No incoming connection is ready
             // TODO: if this happened, take a deep breath and do:
             // - block guest thread with a new [ThreadBlock] type
@@ -849,7 +988,14 @@ fn recvfrom(
     let type_ = State::get(env).sockets.get(&socket).unwrap().type_;
     assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
 
-    assert_eq!(flags, 0); // TODO
+    // MSG_TRUNC only means something as an input flag on Linux, and iOS ignores
+    // it, so cross-platform code may pass it. MSG_DONTWAIT makes this call
+    // non-blocking.
+    assert!(
+        flags & !(MSG_TRUNC | MSG_DONTWAIT) == 0,
+        "recvfrom: unsupported flags {flags:#x}"
+    );
+    let dont_wait = flags & MSG_DONTWAIT != 0;
 
     let (num_bytes_read, addr) = match type_ {
         SOCK_DGRAM => {
@@ -866,6 +1012,11 @@ fn recvfrom(
             let (read, addr) = match udp_socket.recv_from(buf) {
                 Ok(n) => n,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if dont_wait || is_nonblocking(env, socket) {
+                        // What a non-blocking socket is for: try again later.
+                        set_errno(env, EAGAIN);
+                        return -1;
+                    }
                     // No data is ready
                     // TODO: if this happened, take a deep breath and do:
                     // - block guest thread with a new [ThreadBlock] type
@@ -878,9 +1029,7 @@ fn recvfrom(
             };
             if !address.is_null() {
                 let guest_addr = sockaddr::from_sockaddr_v4(&addr);
-                env.mem.write(address, guest_addr);
-                assert_eq!(guest_size_of::<sockaddr>(), env.mem.read(address_len));
-                env.mem.write(address_len, guest_size_of::<sockaddr>());
+                write_sockaddr(env, address, address_len, guest_addr);
             }
             (read, Ok(addr))
         }
@@ -905,6 +1054,11 @@ fn recvfrom(
                     return -1;
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if dont_wait || is_nonblocking(env, socket) {
+                        // What a non-blocking socket is for: try again later.
+                        set_errno(env, EAGAIN);
+                        return -1;
+                    }
                     // No data is ready
                     // TODO: if this happened, take a deep breath and do:
                     // - block guest thread with a new [ThreadBlock] type
@@ -958,6 +1112,11 @@ fn send(
             match tcp_stream.write(buf) {
                 Ok(written) => written,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if is_nonblocking(env, socket) {
+                        // What a non-blocking socket is for: try again later.
+                        set_errno(env, EAGAIN);
+                        return -1;
+                    }
                     // TODO: if this happened, take a deep breath and do:
                     // - block guest thread with a new [ThreadBlock] type
                     // - poll for data in thread scheduling part
@@ -995,7 +1154,7 @@ fn sendto(
 
     assert_eq!(flags, 0); // TODO
 
-    assert_eq!(dest_address_len, guest_size_of::<sockaddr>());
+    assert_sockaddr_len(dest_address_len);
     let sockaddr_val = env.mem.read(dest_address);
     let socket_address = sockaddr_val.to_sockaddr_v4();
     log_dbg!(
@@ -1009,6 +1168,16 @@ fn sendto(
         socket_address,
         dest_address_len
     );
+
+    if is_offline_destination(env, &socket_address) {
+        log_dbg!(
+            "Network access is off, sendto({}) to {} fails with ENETUNREACH",
+            socket,
+            socket_address
+        );
+        set_errno(env, ENETUNREACH);
+        return -1;
+    }
 
     let num_bytes_written = match type_ {
         SOCK_DGRAM => {
@@ -1056,6 +1225,11 @@ fn sendto(
             match udp_socket.send_to(buf, socket_address) {
                 Ok(written) => written,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if is_nonblocking(env, socket) {
+                        // What a non-blocking socket is for: try again later.
+                        set_errno(env, EAGAIN);
+                        return -1;
+                    }
                     // TODO: if this happened, take a deep breath and do:
                     // - block guest thread with a new [ThreadBlock] type
                     // - poll for data in thread scheduling part
@@ -1105,4 +1279,106 @@ pub const FUNCTIONS: FunctionExports = &[
 /// A helper to close a socket, not a part of API
 pub fn close_socket(env: &mut Environment, socket: i32) -> bool {
     State::get_mut(env).sockets.remove(&socket).is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connect_failure_is_reported_to_the_app() {
+        let mut env = Environment::new_fake_for_test();
+        env.options.network_access = true;
+
+        // A port nothing is listening on.
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+
+        let fd = socket(&mut env, AF_INET, SOCK_STREAM, 0);
+        assert!(fd >= 0);
+        let address = env
+            .mem
+            .alloc_and_write(sockaddr::from_ipv4_parts([127, 0, 0, 1], port));
+        let result = connect(
+            &mut env,
+            fd,
+            address.cast_const(),
+            guest_size_of::<sockaddr>(),
+        );
+        assert_eq!(result, -1);
+        assert_eq!(crate::libc::errno::get_errno(&mut env), ECONNREFUSED);
+
+        // It has no address, as it isn't bound or connected.
+        let name = env
+            .mem
+            .alloc_and_write(sockaddr::from_ipv4_parts([1, 2, 3, 4], 5));
+        let name_len = env.mem.alloc_and_write(128 as socklen_t);
+        assert_eq!(getsockname(&mut env, fd, name, name_len), 0);
+        let name = env.mem.read(name);
+        assert_eq!(
+            name.to_sockaddr_v4(),
+            SocketAddrV4::new(std::net::Ipv4Addr::UNSPECIFIED, 0)
+        );
+        assert_eq!(env.mem.read(name_len), guest_size_of::<sockaddr>());
+    }
+
+    #[test]
+    fn sockets_work_as_in_airplane_mode_without_network_access() {
+        let mut env = Environment::new_fake_for_test();
+        assert!(!env.options.network_access);
+        let addr_len = guest_size_of::<sockaddr>();
+
+        // UDP: can be created and bound, but only to this machine.
+        let udp = socket(&mut env, AF_INET, SOCK_DGRAM, 0);
+        assert!(udp >= 0);
+        let any = env
+            .mem
+            .alloc_and_write(sockaddr::from_ipv4_parts([0, 0, 0, 0], 0));
+        assert_eq!(bind(&mut env, udp, any.cast_const(), addr_len), 0);
+        let name = env.mem.alloc(addr_len).cast();
+        let name_len = env.mem.alloc_and_write(addr_len);
+        assert_eq!(getsockname(&mut env, udp, name, name_len), 0);
+        assert!(env.mem.read(name).to_sockaddr_v4().ip().is_loopback());
+
+        // Sending elsewhere fails, and nothing arrives.
+        let elsewhere = env
+            .mem
+            .alloc_and_write(sockaddr::from_ipv4_parts([10, 0, 0, 1], 9));
+        let buffer = env.mem.alloc(16);
+        assert_eq!(
+            sendto(&mut env, udp, buffer, 16, 0, elsewhere, addr_len),
+            -1
+        );
+        assert_eq!(crate::libc::errno::get_errno(&mut env), ENETUNREACH);
+        assert_eq!(
+            recvfrom(
+                &mut env,
+                udp,
+                buffer,
+                16,
+                MSG_DONTWAIT,
+                Ptr::null(),
+                Ptr::null()
+            ),
+            -1
+        );
+        assert_eq!(crate::libc::errno::get_errno(&mut env), EAGAIN);
+
+        // TCP: connecting elsewhere fails straight away.
+        let tcp = socket(&mut env, AF_INET, SOCK_STREAM, 0);
+        assert!(tcp >= 0);
+        assert_eq!(connect(&mut env, tcp, elsewhere.cast_const(), addr_len), -1);
+        assert_eq!(crate::libc::errno::get_errno(&mut env), ENETUNREACH);
+
+        // But connecting to this machine works, as in airplane mode.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let local = env
+            .mem
+            .alloc_and_write(sockaddr::from_ipv4_parts([127, 0, 0, 1], port));
+        let tcp = socket(&mut env, AF_INET, SOCK_STREAM, 0);
+        assert_eq!(connect(&mut env, tcp, local.cast_const(), addr_len), 0);
+    }
 }

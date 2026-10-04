@@ -434,6 +434,15 @@ pub(super) fn UIApplicationMain(
 
 /// Tell the app it's about to quit and then exit.
 pub(super) fn exit(env: &mut Environment) {
+    notify_will_terminate(env);
+    std::process::exit(0);
+}
+
+/// Tell the app it's about to quit, as iPhone OS does when the user presses
+/// the Home button: save `NSUserDefaults`, then send
+/// `applicationWillResignActive:` and `applicationWillTerminate:` (and their
+/// notifications). Many apps save their progress here.
+pub(super) fn notify_will_terminate(env: &mut Environment) {
     let ui_application: id = msg_class![env; UIApplication sharedApplication];
 
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];
@@ -481,8 +490,6 @@ pub(super) fn exit(env: &mut Environment) {
 
         let _: () = msg![env; pool drain];
     };
-
-    std::process::exit(0);
 }
 
 /// App life-cycle notifications

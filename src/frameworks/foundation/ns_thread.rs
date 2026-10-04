@@ -11,15 +11,15 @@ use crate::frameworks::core_foundation::CFTypeRef;
 use crate::frameworks::foundation::NSUInteger;
 use crate::libc::pthread::thread::{
     pthread_attr_init, pthread_attr_setdetachstate, pthread_attr_setstacksize, pthread_attr_t,
-    pthread_create, pthread_self, pthread_t, PTHREAD_CREATE_DETACHED,
+    pthread_create, pthread_self, pthread_t, thread_id_for_pthread, PTHREAD_CREATE_DETACHED,
 };
-use crate::mem::{guest_size_of, Mem, MutPtr};
+use crate::mem::{guest_size_of, Mem, MutPtr, Ptr};
 use crate::objc::{
     id, msg_send, msg_send_no_type_checking, nil, objc_classes, release, retain, todo_objc_setter,
     Class, ClassExports, HostObject, NSZonePtr, SEL,
 };
-use crate::Environment;
 use crate::{msg, msg_class};
+use crate::{Environment, ThreadId};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -41,7 +41,10 @@ struct NSThreadHostObject {
     /// `NSMutableDictionary*`
     thread_dictionary: id,
     owned: bool,
+    /// Whether `main` has returned, for a thread started by `start`.
     finished: bool,
+    /// Set by `cancel`. The thread itself checks this with `isCancelled`.
+    cancelled: bool,
     stack_size: NSUInteger,
     tolerate_type_mismatch: bool,
 }
@@ -61,6 +64,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         thread_dictionary: nil,
         owned: false,
         finished: false,
+        cancelled: false,
         stack_size: Mem::SECONDARY_THREAD_DEFAULT_STACK_SIZE,
         tolerate_type_mismatch: false,
     });
@@ -117,6 +121,13 @@ pub const CLASSES: ClassExports = objc_classes! {
                      toTarget:(id)target
                    withObject:(id)object {
     detach_new_thread_inner(env, selector, target, object, /* tolerate_type_mismatch: */ false)
+}
+
++ (())exit {
+    let ns_thread: id = msg![env; this currentThread];
+    log_dbg!("[NSThread exit] on {:?}", ns_thread);
+    finish_ns_thread(env, ns_thread);
+    env.exit_current_thread(Ptr::null())
 }
 
 + (bool)isMainThread {
@@ -217,13 +228,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<NSThreadHostObject>(this).stack_size = size;
 }
 
+// These check the actual thread, so they're also right for threads not
+// started by NSThread, such as the main thread, or one from pthread_create()
+// whose NSThread comes from currentThread.
+- (bool)isExecuting {
+    let finished = env.objc.borrow::<NSThreadHostObject>(this).finished;
+    !finished && thread_id_for_ns_thread(env, this).is_some_and(|id| env.threads[id].is_alive())
+}
+
 - (bool)isFinished {
-    env.objc.borrow::<NSThreadHostObject>(this).finished
+    let finished = env.objc.borrow::<NSThreadHostObject>(this).finished;
+    finished || thread_id_for_ns_thread(env, this).is_some_and(|id| !env.threads[id].is_alive())
+}
+
+// Cancelling doesn't stop a thread: it only asks it to stop, by setting a
+// flag the thread checks itself with isCancelled.
+- (())cancel {
+    log_dbg!("[(NSThread *){:?} cancel]", this);
+    env.objc.borrow_mut::<NSThreadHostObject>(this).cancelled = true;
 }
 
 - (bool)isCancelled {
-    log_dbg!("TODO: [(NSThread *){:?} isCancelled]", this);
-    false
+    env.objc.borrow::<NSThreadHostObject>(this).cancelled
 }
 
 - (())dealloc {
@@ -239,6 +265,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 type NSThreadRef = CFTypeRef;
 
+/// The touchHLE thread an `NSThread` is for, if it has one: once it's been
+/// started, or, for a thread not started by `NSThread`, once `currentThread`
+/// has been called on it.
+fn thread_id_for_ns_thread(env: &mut Environment, ns_thread: id) -> Option<ThreadId> {
+    let pthread = State::get(env)
+        .ns_threads
+        .iter()
+        .find(|&(_, &object)| object == ns_thread)
+        .map(|(&pthread, _)| pthread)?;
+    thread_id_for_pthread(env, pthread)
+}
+
 pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: NSThreadRef) {
     let class: Class = msg![env; ns_thread_obj class];
     log_dbg!(
@@ -250,6 +288,12 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
 
     () = msg![env; ns_thread_obj main];
 
+    finish_ns_thread(env, ns_thread_obj);
+}
+
+/// Tidy up after an `NSThread`'s thread is done, whether its `main` returned
+/// or it called `+[NSThread exit]`. This must be called on that thread.
+fn finish_ns_thread(env: &mut Environment, ns_thread_obj: id) {
     env.objc
         .borrow_mut::<NSThreadHostObject>(ns_thread_obj)
         .finished = true;
@@ -274,8 +318,6 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
         // e.g. created with `detachNewThreadSelector:toTarget:withObject:`
         release(env, ns_thread_obj);
     }
-
-    // TODO: NSThread exit
 }
 
 pub fn detach_new_thread_inner(

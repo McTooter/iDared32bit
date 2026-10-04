@@ -44,7 +44,11 @@ struct PosixFileHostObject {
     file: GuestFile,
     needs_flush: bool,
     reached_eof: bool,
+    /// File descriptor flags (`F_GETFD`/`F_SETFD`).
     flags: i32,
+    /// File status flags (`F_GETFL`/`F_SETFL`): the access mode, and
+    /// [O_APPEND] and [O_NONBLOCK].
+    status_flags: i32,
 }
 
 // TODO: stdin/stdout/stderr handling somehow
@@ -86,6 +90,8 @@ pub const O_EXCL: OpenFlag = 0x800;
 pub type FileControlCommand = i32;
 const F_GETFD: FileControlCommand = 1;
 const F_SETFD: FileControlCommand = 2;
+const F_GETFL: FileControlCommand = 3;
+const F_SETFL: FileControlCommand = 4;
 const F_GETLK: FileControlCommand = 7;
 const F_SETLK: FileControlCommand = 8;
 const F_RDADVISE: FileControlCommand = 44;
@@ -211,6 +217,7 @@ pub fn open_direct(env: &mut Environment, path: ConstPtr<u8>, flags: i32) -> Fil
                 needs_flush,
                 reached_eof: false,
                 flags: 0,
+                status_flags: flags & (O_ACCMODE | O_APPEND | O_NONBLOCK),
             };
 
             find_or_create_fd(env, host_object)
@@ -784,6 +791,18 @@ fn fcntl(
             let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
             file.flags = flags;
         }
+        F_GETFL => {
+            let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
+            return file.status_flags;
+        }
+        F_SETFL => {
+            // Only these can be changed, the access mode can't.
+            const CHANGEABLE: i32 = O_APPEND | O_NONBLOCK;
+            let new_flags: i32 = args.start().next(env);
+            let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
+            file.status_flags = (file.status_flags & !CHANGEABLE) | (new_flags & CHANGEABLE);
+            log_dbg!("fcntl({}, F_SETFL, {:#x})", fd, new_flags);
+        }
         F_GETLK => {
             let lock_ptr: MutPtr<flock> = args.start().next(env);
             let mut lock = env.mem.read(lock_ptr);
@@ -854,7 +873,7 @@ fn flock(env: &mut Environment, fd: FileDescriptor, operation: FLockFlag) -> i32
     0
 }
 
-fn fsync(env: &mut Environment, fd: FileDescriptor) -> i32 {
+pub fn fsync(env: &mut Environment, fd: FileDescriptor) -> i32 {
     let Some(file) = env.libc_state.posix_io.file_for_fd(fd) else {
         log!(
             "Warning: fsync({:?}) called with unknown fd, returning -1",
@@ -971,11 +990,20 @@ pub fn find_or_create_socket(env: &mut Environment) -> FileDescriptor {
         needs_flush: false,
         reached_eof: false,
         flags: 0,
+        status_flags: O_RDWR,
     };
     find_or_create_fd(env, host_object)
 }
 
 /// Helper function for socket check, not part of API
+/// Whether `O_NONBLOCK` is set for a file descriptor, for sockets.
+pub fn is_nonblocking(env: &mut Environment, fd: FileDescriptor) -> bool {
+    env.libc_state
+        .posix_io
+        .file_for_fd(fd)
+        .is_some_and(|file| file.status_flags & O_NONBLOCK != 0)
+}
+
 pub fn is_socket(env: &mut Environment, fd: FileDescriptor) -> bool {
     let guest_file = &env
         .libc_state

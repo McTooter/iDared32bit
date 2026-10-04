@@ -8,6 +8,7 @@
 //! Unlike its siblings, this module should be considered private and only used
 //! via the re-exports one level up.
 
+mod airplay_sdk;
 pub mod app_picker;
 mod mutex;
 mod nullable_box;
@@ -128,8 +129,10 @@ pub struct Environment {
     gdb_server: Option<Box<gdb::GdbServer>>,
     pub env_vars: HashMap<Vec<u8>, MutPtr<u8>>,
     /// Set to [true] when created using [Environment::new_without_app].
-    pub dump_file: Option<std::fs::File>,
     pub is_app_picker: bool,
+    /// Set to [true] to signal a return to the app picker.
+    pub return_to_app_picker: bool,
+    pub dump_file: Option<std::fs::File>,
     yielder: *const Yielder<Environment, Environment>,
     // The amount of ticks to run for Some(value), or single-stepping for None.
     // Sadly, setting ticks to 1 does not step properly, so Option is required.
@@ -324,33 +327,39 @@ impl Environment {
         // window rotation after-the-fact is somewhat glitchy.
         // This also ensures the splash screen is correctly oriented.
         if options.initial_orientation == window::DeviceOrientation::Portrait {
-            if let Some(&non_portrait_orientation) = bundle
-                .supported_interface_orientations()
-                .iter()
-                .find(|&&o| o != "UIInterfaceOrientationPortrait")
-            {
-                // TODO: Overwriting the options might not be ideal; do we need
-                //       to distinguish this kind of orientation change from
-                //       others?
-                options.initial_orientation = match non_portrait_orientation {
-                    // UIInterfaceOrientation values are flipped relative to
-                    // (UI)DeviceOrientation values (content has to rotate in
-                    // the opposite direction to how the device rotates).
-                    "UIInterfaceOrientationPortraitUpsideDown" => {
-                        window::DeviceOrientation::PortraitUpsideDown
-                    }
-                    "UIInterfaceOrientationLandscapeLeft" => {
-                        window::DeviceOrientation::LandscapeRight
-                    }
-                    "UIInterfaceOrientationLandscapeRight" => {
-                        window::DeviceOrientation::LandscapeLeft
-                    }
-                    // This appears to be an older way set the orientation.
-                    // From testing, it seems to correspond to left.
-                    "UIInterfaceOrientationLandscape" => window::DeviceOrientation::LandscapeLeft,
-                    other => unimplemented!("Unsupported startup orientation: {:?}", other),
-                };
-                log!("App needs non-portrait user interface orientation {:?}, applying device orientation {:?}.", non_portrait_orientation, options.initial_orientation);
+            let orientations = bundle.supported_interface_orientations();
+            // Many apps list other orientations as well as portrait, but
+            // should still start in portrait.
+            if !orientations.contains(&"UIInterfaceOrientationPortrait") {
+                if let Some(&non_portrait_orientation) = orientations
+                    .iter()
+                    .find(|&&o| o != "UIInterfaceOrientationPortrait")
+                {
+                    // TODO: Overwriting the options might not be ideal;
+                    //       do we need to distinguish this kind of
+                    //       orientation change from others?
+                    options.initial_orientation = match non_portrait_orientation {
+                        // UIInterfaceOrientation values are flipped relative to
+                        // (UI)DeviceOrientation values (content has to rotate
+                        // in the opposite direction to how the device rotates).
+                        "UIInterfaceOrientationPortraitUpsideDown" => {
+                            window::DeviceOrientation::PortraitUpsideDown
+                        }
+                        "UIInterfaceOrientationLandscapeLeft" => {
+                            window::DeviceOrientation::LandscapeRight
+                        }
+                        "UIInterfaceOrientationLandscapeRight" => {
+                            window::DeviceOrientation::LandscapeLeft
+                        }
+                        // This appears to be an older way set the orientation.
+                        // From testing, it seems to correspond to left.
+                        "UIInterfaceOrientationLandscape" => {
+                            window::DeviceOrientation::LandscapeLeft
+                        }
+                        other => unimplemented!("Unsupported startup orientation: {:?}", other),
+                    };
+                    log!("App needs non-portrait user interface orientation {:?}, applying device orientation {:?}.", non_portrait_orientation, options.initial_orientation);
+                }
             }
         }
 
@@ -451,6 +460,9 @@ impl Environment {
             /* slide: */ 0,
         )
         .map_err(|e| format!("Could not load executable: {e}"))?;
+
+        // This needs the executable's code as it was before linking.
+        airplay_sdk::fix_code_hash(&executable, &mut mem);
 
         let mut dylibs = Vec::new();
         for dylib in &executable.dynamic_libraries {
@@ -652,7 +664,9 @@ impl Environment {
                         .branch_with_link(entry_point_addr, env.dyld.thread_exit_routine());
                     env.run_call();
 
-                    panic!("Main function exited unexpectedly!");
+                    if !env.return_to_app_picker {
+                        panic!("Main function exited unexpectedly!");
+                    }
                 })
             }));
             if let Err(e) = res {
@@ -693,12 +707,19 @@ impl Environment {
             options: NullableBox::new(options),
             gdb_server: None,
             env_vars: Default::default(),
-            dump_file: None,
             is_app_picker: false,
+            return_to_app_picker: false,
+            dump_file: None,
             yielder: std::ptr::null(),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
         };
+
+        // Apps get the on-screen Home button (where there is one), the app
+        // picker doesn't.
+        if let Some(window) = env.window.as_mut() {
+            window.enable_on_screen_home_button();
+        }
 
         if env.options.dumping_options.any() {
             env.dump_file =
@@ -827,8 +848,9 @@ impl Environment {
             options: NullableBox::new(options),
             gdb_server: None,
             env_vars: Default::default(),
-            dump_file: None,
             is_app_picker: true,
+            return_to_app_picker: false,
+            dump_file: None,
             yielder: std::ptr::null(),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
@@ -886,8 +908,9 @@ impl Environment {
             options: NullableBox::null(),
             gdb_server: None,
             env_vars: HashMap::new(),
-            dump_file: None,
             is_app_picker: true,
+            return_to_app_picker: false,
+            dump_file: None,
             yielder: std::ptr::null(),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
@@ -1281,6 +1304,19 @@ impl Environment {
         self.yield_thread(ThreadBlock::Joining(joinee_thread, ptr));
     }
 
+    /// End the current thread from within it, as `pthread_exit()` does: it
+    /// finishes with `return_value`, and [Self::run] then cleans it up as if
+    /// its start routine had returned. This never returns.
+    pub fn exit_current_thread(&mut self, return_value: mem::MutVoidPtr) -> ! {
+        assert_ne!(self.current_thread, 0, "The main thread can't exit");
+        log_dbg!("Thread {} exiting", self.current_thread);
+        let thread = &mut self.threads[self.current_thread];
+        thread.return_value = Some(return_value);
+        thread.state = ThreadState::Dead;
+        self.yield_thread(ThreadBlock::NotBlocked);
+        unreachable!("Thread {} resumed after exiting", self.current_thread);
+    }
+
     pub fn run_app_picker<F, R>(mut self, f: F) -> R
     where
         F: FnOnce(&mut Environment) -> R + 'static,
@@ -1350,9 +1386,16 @@ impl Environment {
         }
     }
 
-    /// Run the emulator. This is the main loop and won't return until app exit.
-    /// Only `main.rs` should call this.
-    pub fn run(mut self) {
+    /// Run the emulator. This is the main loop.
+    ///
+    /// It returns `true` when the app asks to go back to the app picker.
+    /// The caller should then drop this `Environment` and show the app picker.
+    ///
+    /// It does not return `false` when the entire touchHLE process is quitting
+    /// (e.g. the user closed the window, producing an `Event::Quit`); instead
+    /// the guest termination path in `ui_application::exit` calls
+    /// `std::process::exit` to end the process so this function never returns.
+    pub fn run(mut self) -> bool {
         let mut curr_host_context = self.threads[0].host_context.take().unwrap();
         let panic_cell = self.panic_cell.clone();
         if let Some(mut gdb_server) = self.gdb_server.take() {
@@ -1369,7 +1412,7 @@ impl Environment {
                 // same time, very large values are bad for responsiveness.
                 self.remaining_ticks = Some(100_000);
             }
-            let mut kill_current_thread = false;
+            let kill_current_thread;
 
             if let Some(w) = self.window.as_mut() {
                 w.on_main_stack = false;
@@ -1379,7 +1422,14 @@ impl Environment {
             }));
             self = match res {
                 Ok(ret) => match ret {
-                    corosensei::CoroutineResult::Yield(env) => env,
+                    corosensei::CoroutineResult::Yield(env) => {
+                        // A thread that ended itself with
+                        // exit_current_thread() is cleaned up like one whose
+                        // start routine returned.
+                        kill_current_thread =
+                            env.threads[env.current_thread].state == ThreadState::Dead;
+                        env
+                    }
                     corosensei::CoroutineResult::Return(env) => {
                         kill_current_thread = true;
                         env
@@ -1439,6 +1489,14 @@ impl Environment {
 
             if let Some(w) = self.window.as_mut() {
                 w.on_main_stack = true;
+            }
+
+            if self.return_to_app_picker {
+                // Put the context back so it's freed when Environment drops.
+                let thread = self.threads.get_mut(self.current_thread).unwrap();
+                assert!(thread.host_context.is_none());
+                thread.host_context = old_context;
+                return true;
             }
 
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1587,6 +1645,43 @@ impl Environment {
         self.gdb_server.is_some()
     }
 
+    #[cfg(test)]
+    pub fn new_fake_for_test() -> Self {
+        let options = options::Options::default();
+        let mut mem = mem::Mem::new();
+        let mut objc = objc::ObjC::new();
+        let mut dyld = dyld::Dyld::new();
+        dyld.do_initial_linking_with_no_bins(&mut mem, &mut objc);
+        let cpu = cpu::Cpu::new(None);
+
+        Environment {
+            startup_time: Instant::now(),
+            bundle: NullableBox::new(bundle::Bundle::new_fake_bundle()),
+            fs: NullableBox::new(fs::Fs::new_fake_fs()),
+            window: None,
+            openal_manager: unsafe { NullableBox::null() },
+            mem: NullableBox::new(mem),
+            bins: Vec::new(),
+            objc: NullableBox::new(objc),
+            dyld: NullableBox::new(dyld),
+            cpu: NullableBox::new(cpu),
+            current_thread: 0,
+            threads: Vec::new(),
+            libc_state: Default::default(),
+            mutex_state: Default::default(),
+            framework_state: Default::default(),
+            options: NullableBox::new(options),
+            gdb_server: None,
+            env_vars: Default::default(),
+            dump_file: None,
+            is_app_picker: false,
+            return_to_app_picker: false,
+            yielder: std::ptr::null(),
+            remaining_ticks: None,
+            panic_cell: Rc::new(Cell::new(None)),
+        }
+    }
+
     /// Suspend execution and hand control to the connected debugger.
     /// You should precede this call with a log message that explains why the
     /// debugger is being invoked. The return value is the same as
@@ -1638,6 +1733,11 @@ impl Environment {
                                     .bytes_at_mut(mem::Ptr::from_bits(start), len)
                                     .fill(0);
                             }
+
+                            if self.return_to_app_picker {
+                                return ThreadNextAction::ReturnToHost;
+                            }
+
                             // On entry_size 4 return here since there's
                             // no space to add a ret after the svc call
                             if svc & dyld::Dyld::SVC_LAZY_LINK_RET_FLAG != 0 {
@@ -1814,7 +1914,21 @@ impl Environment {
                             let time = SystemTime::now()
                                 .duration_since(SystemTime::UNIX_EPOCH)
                                 .unwrap();
-                            if deadline <= time {
+                            if deadline > time {
+                                // Make sure we wake up for the timeout if
+                                // every thread is blocked.
+                                let timeout_at = Instant::now() + (deadline - time);
+                                next_awakening = Some(match next_awakening {
+                                    None => timeout_at,
+                                    Some(other) => other.min(timeout_at),
+                                });
+                            } else if !host_cond.waking.contains(&thread_id)
+                                && !self.mutex_state.mutex_is_locked(mutex)
+                            {
+                                // A thread that has already been signalled
+                                // will wake up normally, and a timed-out
+                                // thread still has to wait to get the mutex
+                                // back.
                                 log_dbg!(
                                     "Thread {} is timed out on cond var {:?}.",
                                     thread_id,
@@ -1823,10 +1937,8 @@ impl Environment {
                                 assert!(!host_cond.timed_out.contains(&thread_id));
                                 host_cond.timed_out.insert(thread_id);
 
-                                assert!(host_cond.waking.is_empty());
                                 host_cond.waiting.retain(|&t| t != thread_id);
 
-                                assert!(!self.mutex_state.mutex_is_locked(mutex));
                                 self.threads[thread_id].blocked_by = ThreadBlock::NotBlocked;
                                 self.relock_unblocked_mutex_for_thread(thread_id, mutex);
                                 return thread_id;
@@ -1885,7 +1997,6 @@ impl Environment {
                 // This should hopefully not happen, but if a thread is
                 // blocked on another thread waiting for a deferred return,
                 // it could.
-                // TODO: handle a thread waiting on condition with a timeout
                 panic!("No active threads, program has deadlocked!");
             }
         }

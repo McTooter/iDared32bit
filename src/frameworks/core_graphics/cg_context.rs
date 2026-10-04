@@ -20,7 +20,7 @@ use super::{cg_bitmap_context, cg_color, CGFloat, CGPoint, CGRect, CGSize};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::uikit;
-use crate::mem::{ConstPtr, GuestUSize};
+use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize};
 use crate::objc::{objc_classes, ClassExports, HostObject};
 use crate::Environment;
 
@@ -149,6 +149,10 @@ pub(super) enum CGContextSubclass {
 
 pub type CGContextRef = CFTypeRef;
 
+pub fn CGContextFlush(_env: &mut Environment, ctx: CGContextRef) {
+    log!("TODO: CGContextFlush(ctx={:?})", ctx);
+}
+
 pub fn CGContextRelease(env: &mut Environment, c: CGContextRef) {
     if !c.is_null() {
         CFRelease(env, c);
@@ -160,6 +164,22 @@ pub fn CGContextRetain(env: &mut Environment, c: CGContextRef) -> CGContextRef {
     } else {
         c
     }
+}
+
+pub fn CGContextSelectFont(
+    _env: &mut Environment,
+    ctx: CGContextRef,
+    name_ptr: ConstVoidPtr, // const char * (guest)
+    size: CGFloat,
+    encoding: i32, // CGTextEncoding
+) {
+    log!(
+        "TODO: CGContextSelectFont(ctx={:?}, name_ptr={:?}, size={}, encoding={})",
+        ctx,
+        name_ptr,
+        size,
+        encoding
+    );
 }
 
 fn CGContextSetBlendMode(env: &mut Environment, context: CGContextRef, blend_mode: CGBlendMode) {
@@ -176,6 +196,14 @@ fn CGContextSetFillColorSpace(
     let color_model = CGColorSpaceGetModel(env, space);
     assert!(color_model == kCGColorSpaceModelMonochrome || color_model == kCGColorSpaceModelRGB);
     // TODO
+}
+
+pub fn CGContextSetCharacterSpacing(_env: &mut Environment, ctx: CGContextRef, spacing: CGFloat) {
+    log!(
+        "TODO: CGContextSetCharacterSpacing(ctx={:?}, spacing={})",
+        ctx,
+        spacing
+    );
 }
 
 fn CGContextSetFillColorWithColor(env: &mut Environment, context: CGContextRef, color: CGColorRef) {
@@ -515,10 +543,13 @@ fn CGContextShowGlyphsAtPositions(
 }
 
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(CGContextFlush(_)),
     export_c_func!(CGContextRetain(_)),
+    export_c_func!(CGContextSelectFont(_, _, _, _)),
     export_c_func!(CGContextRelease(_)),
     export_c_func!(CGContextSetBlendMode(_, _)),
     export_c_func!(CGContextSetFillColorSpace(_, _)),
+    export_c_func!(CGContextSetCharacterSpacing(_, _)),
     export_c_func!(CGContextSetFillColorWithColor(_, _)),
     export_c_func!(CGContextSetRGBFillColor(_, _, _, _, _)),
     export_c_func!(CGContextSetGrayFillColor(_, _, _)),

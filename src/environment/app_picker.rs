@@ -15,7 +15,7 @@ use crate::frameworks::core_graphics::cg_context::{
 use crate::frameworks::core_graphics::cg_image::{self, kCGImageAlphaPremultipliedLast};
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_run_loop::run_run_loop_single_iteration;
-use crate::frameworks::foundation::ns_string;
+use crate::frameworks::foundation::{ns_string, NSUInteger};
 use crate::frameworks::uikit::ui_font::{
     UITextAlignmentCenter, UITextAlignmentLeft, UITextAlignmentRight,
 };
@@ -29,12 +29,14 @@ use crate::frameworks::uikit::ui_view::ui_control::{
 use crate::fs::BundleData;
 use crate::image::Image;
 use crate::mem::Ptr;
-use crate::objc::{id, msg, msg_class, nil, objc_classes, release, ClassExports, HostObject};
+use crate::objc::{
+    id, msg, msg_class, nil, objc_classes, release, AnyHostObject, ClassExports, HostObject,
+    NSZonePtr,
+};
 use crate::options::Options;
 use crate::paths;
 use crate::window::DeviceOrientation;
 use crate::Environment;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -130,7 +132,10 @@ fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
 
 #[derive(Default)]
 struct AppPickerDelegateHostObject {
-    icon_tapped: id,
+    grid_tapped_point: Option<CGPoint>,
+    requested_page: Option<usize>,
+    prev_page: bool,
+    next_page: bool,
     copyright_show: bool,
     copyright_hide: bool,
     copyright_prev: bool,
@@ -152,6 +157,59 @@ struct AppPickerDelegateHostObject {
 }
 impl HostObject for AppPickerDelegateHostObject {}
 
+struct AppPickerGridViewHostObject {
+    superclass: crate::frameworks::uikit::ui_view::UIViewHostObject,
+    delegate: id,
+    start_point: Option<CGPoint>,
+    icon_buttons: Vec<id>,
+    highlighted_button: id,
+}
+
+impl HostObject for AppPickerGridViewHostObject {
+    fn as_superclass<'a>(&'a self) -> Option<&'a (dyn AnyHostObject + 'static)> {
+        Some(&self.superclass)
+    }
+    fn as_superclass_mut<'a>(&'a mut self) -> Option<&'a mut (dyn AnyHostObject + 'static)> {
+        Some(&mut self.superclass)
+    }
+}
+impl Default for AppPickerGridViewHostObject {
+    fn default() -> Self {
+        Self {
+            superclass: crate::frameworks::uikit::ui_view::UIViewHostObject::default(),
+            delegate: nil,
+            start_point: None,
+            icon_buttons: Vec::new(),
+            highlighted_button: nil,
+        }
+    }
+}
+
+struct AppPickerPageControlHostObject {
+    superclass: crate::frameworks::uikit::ui_view::UIViewHostObject,
+    delegate: id,
+    number_of_pages: usize,
+    current_page: usize,
+}
+impl Default for AppPickerPageControlHostObject {
+    fn default() -> Self {
+        Self {
+            superclass: crate::frameworks::uikit::ui_view::UIViewHostObject::default(),
+            delegate: nil,
+            number_of_pages: 0,
+            current_page: 0,
+        }
+    }
+}
+impl HostObject for AppPickerPageControlHostObject {
+    fn as_superclass<'a>(&'a self) -> Option<&'a (dyn AnyHostObject + 'static)> {
+        Some(&self.superclass)
+    }
+    fn as_superclass_mut<'a>(&'a mut self) -> Option<&'a mut (dyn AnyHostObject + 'static)> {
+        Some(&mut self.superclass)
+    }
+}
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     // Not a real iOS dylib obviously. This shouldn't really be in the list of
     // dylibs if we can avoid it somehow (TODO?).
@@ -171,12 +229,22 @@ const CLASSES: ClassExports = objc_classes! {
 
 @implementation _touchHLE_AppPickerDelegate: NSObject
 
-- (())iconTapped:(id)sender {
-    // There is no allocWithZone: that creates AppPickerDelegateHostObject, so
-    // this downcast effectively acts as an assertion that this class is being
-    // used within the app picker, so it can't be abused. :)
+- (())gridTappedAt:(CGPoint)point {
     let host_obj = env.objc.borrow_mut::<AppPickerDelegateHostObject>(this);
-    host_obj.icon_tapped = sender;
+    host_obj.grid_tapped_point = Some(point);
+}
+
+- (())pageSelected:(NSUInteger)page {
+    let host_obj = env.objc.borrow_mut::<AppPickerDelegateHostObject>(this);
+    host_obj.requested_page = Some(page as usize);
+}
+
+- (())prevPage {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).prev_page = true;
+}
+
+- (())nextPage {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).next_page = true;
 }
 
 - (())copyrightInfoShow {
@@ -267,6 +335,189 @@ const CLASSES: ClassExports = objc_classes! {
 
     if let Err(e) = crate::window::open_url(env, "https://iDared32bit-emu.com/") {
         echo!("Couldn't open iDared32bit-emu.com: {}", e);
+    }
+}
+
+@end
+
+@implementation _touchHLE_AppPickerPageControl: UIView
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = Box::<AppPickerPageControlHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (())setNumberOfPages:(NSUInteger)n {
+    env.objc.borrow_mut::<AppPickerPageControlHostObject>(this).number_of_pages = n as usize;
+    // Like UIPageControl's hidesForSinglePage: one dot says nothing.
+    () = msg![env; this setHidden:(n <= 1)];
+    () = msg![env; this setNeedsDisplay];
+}
+- (())setCurrentPage:(NSUInteger)n {
+    env.objc.borrow_mut::<AppPickerPageControlHostObject>(this).current_page = n as usize;
+    () = msg![env; this setNeedsDisplay];
+}
+
+- (())setDelegate:(id)delegate {
+    env.objc.borrow_mut::<AppPickerPageControlHostObject>(this).delegate = delegate;
+}
+
+- (())touchesEnded:(id)touches withEvent:(id)_event {
+    let touch: id = msg![env; touches anyObject];
+    let point: CGPoint = msg![env; touch locationInView:this];
+    let bounds: CGRect = msg![env; this bounds];
+    let (number_of_pages, current_page, delegate) = {
+        let host_obj = env.objc.borrow::<AppPickerPageControlHostObject>(this);
+        (host_obj.number_of_pages, host_obj.current_page, host_obj.delegate)
+    };
+
+    if number_of_pages == 0 || delegate == nil { return; }
+
+    let dot_spacing: CGFloat = 15.0;
+    let total_width = (number_of_pages as f32 - 1.0) * dot_spacing;
+    let start_x = bounds.size.width / 2.0 - total_width / 2.0;
+
+    // A tap on a dot goes to its page. The dots are too small to hit
+    // reliably, so like UIPageControl, a tap anywhere else goes one page
+    // back or forward, depending on which side of the current dot it's on.
+    let nearest = ((point.x - start_x) / dot_spacing).round();
+    if nearest >= 0.0 && (nearest as usize) < number_of_pages
+        && (point.x - (start_x + nearest * dot_spacing)).abs() <= dot_spacing / 2.0 {
+        () = msg![env; delegate pageSelected:(nearest as NSUInteger)];
+    } else if point.x < start_x + (current_page as f32) * dot_spacing {
+        () = msg![env; delegate prevPage];
+    } else {
+        () = msg![env; delegate nextPage];
+    }
+}
+
+- (())drawRect:(CGRect)_rect {
+    use crate::frameworks::core_graphics::cg_context::{CGContextFillRect, CGContextSetRGBFillColor};
+    let context = crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext(env);
+    let bounds: CGRect = msg![env; this bounds];
+    let &AppPickerPageControlHostObject { number_of_pages, current_page, .. } = env.objc.borrow(this);
+
+    if number_of_pages == 0 { return; }
+
+    let dot_spacing = 15.0;
+    let total_width = (number_of_pages as f32 - 1.0) * dot_spacing;
+    let start_x = bounds.size.width / 2.0 - total_width / 2.0;
+    let y = (bounds.size.height / 2.0).round();
+
+    for i in 0..number_of_pages {
+        let is_current = i == current_page;
+        let size = if is_current { 7.0 } else { 5.0 };
+        let alpha = if is_current { 1.0 } else { 0.5 };
+        CGContextSetRGBFillColor(env, context, 1.0, 1.0, 1.0, alpha);
+
+        let x = (start_x + (i as f32) * dot_spacing).round();
+        let dot_rects = [
+            CGRect { origin: CGPoint { x: x - size/2.0 + 1.0, y: y - size/2.0 }, size: CGSize { width: size - 2.0, height: size } },
+            CGRect { origin: CGPoint { x: x - size/2.0, y: y - size/2.0 + 1.0 }, size: CGSize { width: size, height: size - 2.0 } },
+        ];
+        for r in dot_rects {
+            CGContextFillRect(env, context, r);
+        }
+    }
+}
+
+@end
+
+@implementation _touchHLE_AppPickerGridView: UIView
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = Box::<AppPickerGridViewHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (())touchesBegan:(id)touches withEvent:(id)_event {
+    let touch: id = msg![env; touches anyObject];
+    let point: CGPoint = msg![env; touch locationInView:this];
+
+    let (buttons, previous) = {
+        let host_obj = env.objc.borrow_mut::<AppPickerGridViewHostObject>(this);
+        host_obj.start_point = Some(point);
+        (host_obj.icon_buttons.clone(), std::mem::take(&mut host_obj.highlighted_button))
+    };
+    // A new touch (e.g. a second finger) replaces the old one: un-highlight
+    // its icon, or it would stay half-transparent.
+    if previous != nil {
+        () = msg![env; previous setAlpha:(1.0 as CGFloat)];
+    }
+
+    for &button in &buttons {
+        let frame: CGRect = msg![env; button frame];
+        if point.x >= frame.origin.x && point.x < frame.origin.x + frame.size.width &&
+           point.y >= frame.origin.y && point.y < frame.origin.y + frame.size.height {
+            () = msg![env; button setAlpha:(0.5 as CGFloat)];
+            let host_obj = env.objc.borrow_mut::<AppPickerGridViewHostObject>(this);
+            host_obj.highlighted_button = button;
+            break;
+        }
+    }
+}
+
+- (())touchesMoved:(id)touches withEvent:(id)_event {
+    let touch: id = msg![env; touches anyObject];
+    let point: CGPoint = msg![env; touch locationInView:this];
+
+    let (start_point, highlighted_button) = {
+        let host_obj = env.objc.borrow::<AppPickerGridViewHostObject>(this);
+        (host_obj.start_point, host_obj.highlighted_button)
+    };
+    if let Some(start_point) = start_point {
+        let dx = point.x - start_point.x;
+        if dx.abs() > 50.0 && highlighted_button != nil {
+            () = msg![env; highlighted_button setAlpha:(1.0 as CGFloat)];
+            let host_obj = env.objc.borrow_mut::<AppPickerGridViewHostObject>(this);
+            host_obj.highlighted_button = nil;
+        }
+    }
+}
+
+- (())touchesEnded:(id)touches withEvent:(id)_event {
+    let touch: id = msg![env; touches anyObject];
+    let point: CGPoint = msg![env; touch locationInView:this];
+
+    let (delegate, start_point, highlighted_button) = {
+        let host_obj = env.objc.borrow::<AppPickerGridViewHostObject>(this);
+        (host_obj.delegate, host_obj.start_point, host_obj.highlighted_button)
+    };
+
+    if let Some(start_point) = start_point {
+        let dx = point.x - start_point.x;
+        if dx > 50.0 {
+            () = msg![env; delegate prevPage];
+        } else if dx < -50.0 {
+            () = msg![env; delegate nextPage];
+        } else if highlighted_button != nil {
+            // Only launch the icon that was pressed, and only if the finger
+            // is still on it: not whichever icon the finger ends up on.
+            let frame: CGRect = msg![env; highlighted_button frame];
+            if point.x >= frame.origin.x && point.x < frame.origin.x + frame.size.width &&
+               point.y >= frame.origin.y && point.y < frame.origin.y + frame.size.height {
+                () = msg![env; delegate gridTappedAt:point];
+            }
+        }
+    }
+
+    if highlighted_button != nil {
+        () = msg![env; highlighted_button setAlpha:(1.0 as CGFloat)];
+    }
+    let host_obj = env.objc.borrow_mut::<AppPickerGridViewHostObject>(this);
+    host_obj.start_point = None;
+    host_obj.highlighted_button = nil;
+}
+
+- (())touchesCancelled:(id)_touches withEvent:(id)_event {
+    // Forget the touch without acting on it, and un-highlight its icon.
+    let highlighted_button = {
+        let host_obj = env.objc.borrow_mut::<AppPickerGridViewHostObject>(this);
+        host_obj.start_point = None;
+        std::mem::take(&mut host_obj.highlighted_button)
+    };
+    if highlighted_button != nil {
+        () = msg![env; highlighted_button setAlpha:(1.0 as CGFloat)];
     }
 }
 
@@ -519,7 +770,7 @@ fn app_picker_inner(
         buttons_row2_center,
         &[
             ("Copyright info", "copyrightInfoShow"),
-            ("iDared 32bit Code", "visitWebsite"),
+            ("iDared 32bit Web", "visitWebsite"),
         ],
         None,
     );
@@ -578,44 +829,81 @@ fn app_picker_inner(
     () = msg![env; window makeKeyAndVisible];
 
     let main_run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
+    let mut current_page_idx = 0;
     // If an app is picked, this loop returns. If the user quits touchHLE, the
     // process exits.
     let app_path = loop {
         run_run_loop_single_iteration(env, main_run_loop);
         let host_obj = env.objc.borrow_mut::<AppPickerDelegateHostObject>(delegate);
-        let icon_tapped = std::mem::take(&mut host_obj.icon_tapped);
-        if icon_tapped != nil {
-            match icon_grid_stuff.as_ref().unwrap().icon_map.get(&icon_tapped) {
-                Some(&TappedIcon::App(app_idx)) => {
-                    // Provide visual feedback that the app has been picked
-                    // (it may take a while for the splash screen to appear etc)
-                    () = msg![env; icon_tapped setAlpha:(0.5 as CGFloat)];
-                    // Redraw screen, even if this makes the next frame early
-                    // (the app picker will never be redrawn after this).
-                    crate::frameworks::core_animation::recomposite_if_necessary(
-                        env, /* force: */ true,
-                    );
-                    // Ensure touchHLE is responsive from the OS perspective,
-                    // otherwise screen redraw might not show up? (Unclear if
-                    // this explanation is correct.)
-                    run_run_loop_single_iteration(env, main_run_loop);
 
-                    let app_path = &apps.as_ref().unwrap()[app_idx].path;
-                    echo!("Picked: {}", app_path.display());
-                    break app_path.clone();
-                }
-                Some(&TappedIcon::ChangePage(page_idx)) => {
-                    update_icon_grid(
-                        env,
-                        icon_grid_stuff.as_mut().unwrap(),
-                        apps.as_mut().unwrap(),
-                        page_idx,
-                    );
-                }
-                None => (), // Tapped on a black space
+        if std::mem::take(&mut host_obj.prev_page) {
+            if current_page_idx > 0 {
+                current_page_idx -= 1;
+                let grid_stuff = icon_grid_stuff.as_mut().unwrap();
+                update_icon_grid(env, grid_stuff, apps.as_mut().unwrap(), current_page_idx);
+                () = msg![env; (grid_stuff.page_control) setCurrentPage:(current_page_idx as NSUInteger)];
             }
             continue;
         }
+        if let Some(idx) = std::mem::take(&mut host_obj.requested_page) {
+            let grid_stuff = icon_grid_stuff.as_mut().unwrap();
+            if idx < grid_stuff.pages.len() && idx != current_page_idx {
+                current_page_idx = idx;
+                update_icon_grid(env, grid_stuff, apps.as_mut().unwrap(), current_page_idx);
+                () = msg![env; (grid_stuff.page_control) setCurrentPage:(current_page_idx as NSUInteger)];
+            }
+            continue;
+        }
+        if std::mem::take(&mut host_obj.next_page) {
+            if current_page_idx + 1 < icon_grid_stuff.as_ref().unwrap().pages.len() {
+                current_page_idx += 1;
+                let grid_stuff = icon_grid_stuff.as_mut().unwrap();
+                update_icon_grid(env, grid_stuff, apps.as_mut().unwrap(), current_page_idx);
+                () = msg![env; (grid_stuff.page_control) setCurrentPage:(current_page_idx as NSUInteger)];
+            }
+            continue;
+        }
+        if let Some(point) = std::mem::take(&mut host_obj.grid_tapped_point) {
+            let grid_stuff = icon_grid_stuff.as_mut().unwrap();
+            let app_idx_range = grid_stuff.pages[current_page_idx].clone();
+            let mut app_idx = None;
+
+            for (i, &(button, _label)) in grid_stuff.icon_buttons_and_labels.iter().enumerate() {
+                let frame: CGRect = msg![env; button frame];
+                if point.x >= frame.origin.x
+                    && point.x < frame.origin.x + frame.size.width
+                    && point.y >= frame.origin.y
+                    && point.y < frame.origin.y + frame.size.height
+                {
+                    let idx = app_idx_range.start + i;
+                    if idx < app_idx_range.end {
+                        app_idx = Some((idx, button));
+                    }
+                    break;
+                }
+            }
+
+            if let Some((app_idx, icon_button)) = app_idx {
+                // Provide visual feedback that the app has been picked
+                // (it may take a while for the splash screen to appear etc)
+                () = msg![env; icon_button setAlpha:(0.5 as CGFloat)];
+                // Redraw screen, even if this makes the next frame early
+                // (the app picker will never be redrawn after this).
+                crate::frameworks::core_animation::recomposite_if_necessary(
+                    env, /* force: */ true,
+                );
+                // Ensure touchHLE is responsive from the OS perspective,
+                // otherwise screen redraw might not show up? (Unclear if
+                // this explanation is correct.)
+                run_run_loop_single_iteration(env, main_run_loop);
+
+                let app_path = &apps.as_ref().unwrap()[app_idx].path;
+                echo!("Picked: {}", app_path.display());
+                break app_path.clone();
+            }
+            continue;
+        }
+
         if std::mem::take(&mut host_obj.copyright_show) {
             copyright_info_page_idx = 0;
             change_copyright_page(
@@ -758,18 +1046,11 @@ const ICON_SIZE: CGSize = CGSize {
     height: 57.0,
 };
 
-enum TappedIcon {
-    App(usize),
-    ChangePage(usize),
-}
-
 struct IconGridStuff {
+    page_control: id,
     icon_buttons_and_labels: Vec<(id, id)>,
     placeholder_icon: Option<id>,
-    prev_icon: Option<id>,
-    next_icon: Option<id>,
     pages: Vec<std::ops::Range<usize>>,
-    icon_map: HashMap<id, TappedIcon>,
 }
 
 fn make_icon_grid(
@@ -788,14 +1069,46 @@ fn make_icon_grid(
         height: 13.0,
     };
     let icon_gap_x: CGFloat = 19.0;
-    let icon_gap_y: CGFloat = 4.0 + label_size.height + 14.0;
+    let icon_gap_y: CGFloat = 4.0 + label_size.height + 8.0;
     let icon_grid_width = (ICON_SIZE.width * num_cols_f) + icon_gap_x * (num_cols_f - 1.0);
     let icon_grid_origin = CGPoint {
         x: (app_frame.size.width - icon_grid_width) / 2.0,
-        y: 12.0,
+        y: 8.0,
     };
 
-    let icon_tapped_sel = env.objc.lookup_selector("iconTapped:").unwrap();
+    let grid_view_frame = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: app_frame.size.width,
+            height: app_frame.size.height - 100.0, // divider
+        },
+    };
+    let grid_view: id = msg_class![env; _touchHLE_AppPickerGridView alloc];
+    let grid_view: id = msg![env; grid_view initWithFrame:grid_view_frame];
+    {
+        let host_obj = env
+            .objc
+            .borrow_mut::<AppPickerGridViewHostObject>(grid_view);
+        host_obj.delegate = delegate;
+    }
+    () = msg![env; main_view addSubview:grid_view];
+
+    let page_control: id = msg_class![env; _touchHLE_AppPickerPageControl alloc];
+    let page_control_frame = CGRect {
+        origin: CGPoint {
+            x: 0.0,
+            // The dots stay where they were, 10 points above the grid's
+            // bottom, but the strip is taller, to be easier to tap.
+            y: grid_view_frame.size.height - 26.0,
+        },
+        size: CGSize {
+            width: app_frame.size.width,
+            height: 32.0,
+        },
+    };
+    let page_control: id = msg![env; page_control initWithFrame:page_control_frame];
+    () = msg![env; page_control setDelegate:delegate];
+    () = msg![env; main_view addSubview:page_control];
 
     let mut icon_buttons_and_labels = Vec::new();
 
@@ -817,10 +1130,8 @@ fn make_icon_grid(
         let image_view: id = msg![env; icon_button imageView];
         let bounds: CGRect = msg![env; icon_button bounds];
         () = msg![env; image_view setFrame:bounds];
-        () = msg![env; icon_button addTarget:delegate
-                                      action:icon_tapped_sel
-                            forControlEvents:UIControlEventTouchUpInside];
-        () = msg![env; main_view addSubview:icon_button];
+        () = msg![env; icon_button setUserInteractionEnabled:false];
+        () = msg![env; grid_view addSubview:icon_button];
 
         // Rounding is needed here to avoid blurry text.
         let label_frame = CGRect {
@@ -848,35 +1159,35 @@ fn make_icon_grid(
         () = msg![env; label setTextColor:text_color];
         let bg_color: id = msg_class![env; UIColor clearColor];
         () = msg![env; label setBackgroundColor:bg_color];
-        () = msg![env; main_view addSubview:label];
+        () = msg![env; grid_view addSubview:label];
 
         icon_buttons_and_labels.push((icon_button, label));
+
+        {
+            let host_obj = env
+                .objc
+                .borrow_mut::<AppPickerGridViewHostObject>(grid_view);
+            host_obj.icon_buttons.push(icon_button);
+        }
     }
 
     // TODO: Use UIScrollView pagination and UIPageControl once available.
     let mut pages = Vec::new();
     let mut start = 0;
     while start < total_app_count {
-        let mut end = start + icon_buttons_and_labels.len();
-        if start > 0 {
-            end -= 1; // one icon space taken by "previous" button
-        }
-        if end < total_app_count {
-            end -= 1; // one icon space taken by "next" button
-        } else {
-            end = total_app_count;
-        }
+        let end = (start + icon_buttons_and_labels.len()).min(total_app_count);
         pages.push(start..end);
         start = end;
     }
 
+    let page_count = pages.len();
+    () = msg![env; page_control setNumberOfPages:(page_count as NSUInteger)];
+
     IconGridStuff {
+        page_control,
         icon_buttons_and_labels,
         placeholder_icon: None,
-        prev_icon: None,
-        next_icon: None,
         pages,
-        icon_map: HashMap::new(),
     }
 }
 
@@ -949,25 +1260,9 @@ fn update_icon_grid(
     apps: &mut [AppInfo],
     page_idx: usize,
 ) {
-    icon_grid_stuff.icon_map.clear();
-
     let app_idx_range = icon_grid_stuff.pages[page_idx].clone();
-    let have_prev_icon = page_idx != 0;
-    let have_next_icon = app_idx_range.end != apps.len();
 
     let mut icon_iter = icon_grid_stuff.icon_buttons_and_labels.iter();
-
-    if have_prev_icon {
-        let &(icon_button, label) = icon_iter.next().unwrap();
-        let image = *icon_grid_stuff.prev_icon.get_or_insert_with(|| {
-            make_icon_from_glyph(env, '←', 50.0, -9.0, (0.25, 0.25, 0.25, 1.0))
-        });
-        () = msg![env; icon_button setImage:image forState:UIControlStateNormal];
-        () = msg![env; label setText:(ns_string::get_static_str(env, ""))];
-        icon_grid_stuff
-            .icon_map
-            .insert(icon_button, TappedIcon::ChangePage(page_idx - 1));
-    }
 
     for app_idx in app_idx_range.clone() {
         let app = &mut apps[app_idx];
@@ -991,22 +1286,6 @@ fn update_icon_grid(
             .display_name_ns_string
             .get_or_insert_with(|| ns_string::from_rust_string(env, app.display_name.clone()));
         () = msg![env; label setText:text];
-
-        icon_grid_stuff
-            .icon_map
-            .insert(icon_button, TappedIcon::App(app_idx));
-    }
-
-    if have_next_icon {
-        let &(icon_button, label) = icon_iter.next().unwrap();
-        let image = *icon_grid_stuff.next_icon.get_or_insert_with(|| {
-            make_icon_from_glyph(env, '→', 50.0, -9.0, (0.25, 0.25, 0.25, 1.0))
-        });
-        () = msg![env; icon_button setImage:image forState:UIControlStateNormal];
-        () = msg![env; label setText:(ns_string::get_static_str(env, ""))];
-        icon_grid_stuff
-            .icon_map
-            .insert(icon_button, TappedIcon::ChangePage(page_idx + 1));
     }
 
     // There may be remaining spaces might need to be blanked.

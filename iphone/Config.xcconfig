@@ -7,4 +7,15 @@
 // The `?` makes the include optional, so the project still opens and builds
 // when Local.xcconfig is absent (CI, or a contributor without a signing
 // identity); it just won't be signed with a team until one is provided.
+
+// The app's version, and its build number, which starts again at 1 for each
+// new version. This is the only place they're set: the Xcode project inherits
+// them, and src/version/build.rs reads MARKETING_VERSION for the version shown
+// in the app. dev-scripts/prepare-release.sh updates them.
+//
+// Don't change them in Xcode's General tab: that writes them into the project
+// file, where they override these.
+MARKETING_VERSION = 1.3.0
+CURRENT_PROJECT_VERSION = 1
+
 #include? "../Local.xcconfig"

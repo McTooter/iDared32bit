@@ -224,6 +224,7 @@ impl Cpu {
     pub fn cpsr(&self) -> u32 {
         unsafe { touchHLE_MgbaWrapper_cpsr(self.mgba_wrapper) }
     }
+
     pub fn set_cpsr(&mut self, cpsr: u32) {
         unsafe { touchHLE_MgbaWrapper_set_cpsr(self.mgba_wrapper, cpsr) }
     }

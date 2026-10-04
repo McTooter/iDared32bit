@@ -243,3 +243,6 @@ com.ea.nfshp.bv: --force-composition
 com.ea.nfshp.inc: --force-composition
 com.ea.nfshp.ipad.bv: --force-composition
 com.ea.nfshp.ipad.inc: --force-composition
+
+# Galaxy on Fire 2 HD
+www.fishlabs.net.gof2hd: --device-family=ipad

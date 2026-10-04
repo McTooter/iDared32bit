@@ -16,6 +16,21 @@
 #include <CoreFoundation/CFURL.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+
+// CommonCrypto
+
+#define CC_SHA256_DIGEST_LENGTH 32
+typedef uint32_t CC_LONG;
+typedef struct CC_SHA256state_st {
+  CC_LONG count[2];
+  CC_LONG hash[8];
+  CC_LONG wbuf[16];
+} CC_SHA256_CTX;
+unsigned char *CC_SHA256(const void *, CC_LONG, unsigned char *);
+int CC_SHA256_Init(CC_SHA256_CTX *);
+int CC_SHA256_Update(CC_SHA256_CTX *, const void *, CC_LONG);
+int CC_SHA256_Final(unsigned char *, CC_SHA256_CTX *);
 
 // Objective-C runtime
 
@@ -212,6 +227,17 @@ SEL NSSelectorFromString(NSString *);
 - (void)lockWhenCondition:(NSInteger)condition;
 - (BOOL)tryLockWhenCondition:(NSInteger)condition;
 - (void)unlockWithCondition:(NSInteger)condition;
+@end
+
+@interface NSThread : NSObject
++ (NSThread *)currentThread;
++ (void)exit;
+- (instancetype)initWithTarget:(id)target
+                      selector:(SEL)selector
+                        object:(id)argument;
+- (void)start;
+- (BOOL)isExecuting;
+- (BOOL)isFinished;
 @end
 
 // Core Graphics

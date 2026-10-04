@@ -842,6 +842,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1116,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "touchHLE"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cargo-license",
  "cc",
@@ -1137,6 +1148,7 @@ dependencies = [
  "sdl2",
  "sdl2-sys",
  "sha1",
+ "sha2",
  "symphonia",
  "touchHLE_gl_bindings",
  "touchHLE_mgba_wrapper",
@@ -1150,35 +1162,35 @@ dependencies = [
 
 [[package]]
 name = "touchHLE_gl_bindings"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "gl_generator",
 ]
 
 [[package]]
 name = "touchHLE_mgba_wrapper"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "touchHLE_pvrt_decompress_wrapper"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "touchHLE_stb_image_wrapper"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "touchHLE_version"
-version = "0.2.3"
+version = "0.3.0"
 
 [[package]]
 name = "ttf-parser"

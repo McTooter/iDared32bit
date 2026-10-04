@@ -61,7 +61,19 @@ const kAudioUnitProperty_SetRenderCallback: AudioUnitPropertyID = 23;
 const kAudioUnitProperty_MaximumFramesPerSlice: AudioUnitPropertyID = 14;
 const kAudioUnitProperty_StreamFormat: AudioUnitPropertyID = 8;
 
+const kAudioUnitProperty_ShouldAllocateBuffer: AudioUnitPropertyID = 51;
+
 const kAudioOutputUnitProperty_EnableIO: AudioUnitPropertyID = 2003;
+const kAudioOutputUnitProperty_SetInputCallback: AudioUnitPropertyID = 2005;
+
+// VoiceProcessingIO only.
+const kAUVoiceIOProperty_BypassVoiceProcessing: AudioUnitPropertyID = 2100;
+const kAUVoiceIOProperty_VoiceProcessingEnableAGC: AudioUnitPropertyID = 2101;
+const kAUVoiceIOProperty_DuckNonVoiceAudio: AudioUnitPropertyID = 2102;
+
+/// Output units' element (bus) 0 is the speaker, element 1 the microphone.
+const OUTPUT_ELEMENT: AudioUnitElement = 0;
+const INPUT_ELEMENT: AudioUnitElement = 1;
 
 fn AudioUnitInitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus {
     let run_loop = CFRunLoopGetMain(env);
@@ -86,8 +98,6 @@ fn AudioUnitSetProperty(
     in_data: ConstVoidPtr,
     in_data_size: u32,
 ) -> OSStatus {
-    assert!(in_element == 0);
-
     let host_object = audio_components::State::get(&mut env.framework_state)
         .audio_component_instances
         .get_mut(&in_unit)
@@ -96,6 +106,7 @@ fn AudioUnitSetProperty(
     let result;
     match in_id {
         kAudioUnitProperty_SetRenderCallback => {
+            assert_eq!(in_element, OUTPUT_ELEMENT);
             assert_eq!(in_scope, kAudioUnitScope_Global);
             assert_eq!(in_data_size, guest_size_of::<AURenderCallbackStruct>());
             let render_callback = env.mem.read(in_data.cast::<AURenderCallbackStruct>());
@@ -103,7 +114,13 @@ fn AudioUnitSetProperty(
             result = 0;
             log_dbg!("AudioUnitSetProperty({:?}, kAudioUnitProperty_SetRenderCallback, {:?}, {:?}, {:?}, {:?}) -> {:?}", in_unit, in_scope, in_element, render_callback, in_data_size, result);
         }
+        kAudioUnitProperty_StreamFormat if in_element == INPUT_ELEMENT => {
+            // The format the app wants microphone input in.
+            result = 0;
+            log!("TODO: Ignoring AudioUnitSetProperty({:?}, kAudioUnitProperty_StreamFormat, {:?}, {:?}, ...) for microphone input, which isn't supported", in_unit, in_scope, in_element);
+        }
         kAudioUnitProperty_StreamFormat => {
+            assert_eq!(in_element, OUTPUT_ELEMENT);
             assert_eq!(in_data_size, guest_size_of::<AudioStreamBasicDescription>());
             let stream_format = env.mem.read(in_data.cast::<AudioStreamBasicDescription>());
             log_if_broken_audio_format(&stream_format);
@@ -117,15 +134,43 @@ fn AudioUnitSetProperty(
             log_dbg!("AudioUnitSetProperty({:?}, kAudioUnitProperty_StreamFormat, {:?}, {:?}, {:?}, {:?}) -> {:?}", in_unit, in_scope, in_element, stream_format, in_data_size, result);
         }
         kAudioOutputUnitProperty_EnableIO => {
-            assert_eq!(in_scope, kAudioUnitScope_Output);
             assert_eq!(in_data_size, guest_size_of::<u32>());
             let enabled = env.mem.read(in_data.cast::<u32>());
-            // Output is enabled by default.
-            assert_eq!(enabled, 1);
+            if (in_scope, in_element) == (kAudioUnitScope_Input, INPUT_ELEMENT) {
+                // Microphone input. It's accepted, but the app never gets any.
+                log!("TODO: Ignoring AudioUnitSetProperty({:?}, kAudioOutputUnitProperty_EnableIO, ...) = {} for microphone input, which isn't supported", in_unit, enabled);
+            } else {
+                assert_eq!(
+                    (in_scope, in_element),
+                    (kAudioUnitScope_Output, OUTPUT_ELEMENT)
+                );
+                // Output is enabled by default.
+                assert_eq!(enabled, 1);
+            }
             result = 0;
             log_dbg!("AudioUnitSetProperty({:?}, kAudioOutputUnitProperty_EnableIO, {:?}, {:?}, {:?}, {:?}) -> {:?}", in_unit, in_scope, in_element, enabled, in_data_size, result);
         }
-        _ => unimplemented!(),
+        kAudioOutputUnitProperty_SetInputCallback
+        | kAudioUnitProperty_ShouldAllocateBuffer
+        | kAUVoiceIOProperty_BypassVoiceProcessing
+        | kAUVoiceIOProperty_VoiceProcessingEnableAGC
+        | kAUVoiceIOProperty_DuckNonVoiceAudio => {
+            // Microphone input and voice processing, which aren't supported.
+            result = 0;
+            log!(
+                "TODO: Ignoring AudioUnitSetProperty({:?}, {}, {:?}, {:?}, ...)",
+                in_unit,
+                in_id,
+                in_scope,
+                in_element
+            );
+        }
+        _ => unimplemented!(
+            "AudioUnitSetProperty() for property {}, scope {}, element {}",
+            in_id,
+            in_scope,
+            in_element
+        ),
     };
 
     result
@@ -140,7 +185,13 @@ fn AudioUnitGetProperty(
     out_data: MutVoidPtr,
     io_data_size: MutPtr<u32>,
 ) -> OSStatus {
-    assert!(in_element == 0);
+    assert!(
+        in_element == OUTPUT_ELEMENT,
+        "AudioUnitGetProperty() for property {}, scope {}, element {}",
+        in_id,
+        in_scope,
+        in_element
+    );
 
     let host_object = audio_components::State::get(&mut env.framework_state)
         .audio_component_instances
