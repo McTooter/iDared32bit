@@ -2,6 +2,33 @@
 
 iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only iDared 32bit's own changes. The touchHLE changes it includes are in [CHANGELOG.md](CHANGELOG.md), which is touchHLE's own changelog, kept exactly as it is upstream.
 
+## NEXT
+
+Based on touchHLE v0.3.0. Its changes are in [CHANGELOG.md](CHANGELOG.md).
+
+Compatibility:
+
+- Without network access, sockets behave as on a device in airplane mode, so apps that try to connect carry on instead of hanging. The socket API also handles more options and flags, non-blocking sockets and connection timeouts.
+- Threads: `NSThread` reports its real state and supports `cancel` and `exit`, and `pthread_exit()` and the pthread scheduling functions are implemented. A thread waiting with a timeout is no longer mistaken for a deadlock. (`NSThread` `isExecuting` by alborrajo.)
+- Audio: voice processing audio units, the audio route property, and the length and seeking functions of `ExtAudioFile`.
+- Games built with the Airplay SDK no longer fail their integrity check at startup.
+- `printf()` and `NSLog()` support left-justified fields.
+- Implemented `dladdr()`, `inet_aton()` (by kylon), `CC_SHA256` and its incremental functions, `-[UIWindow windowLevel]`, `-[NSFileHandle synchronizeFile]` and `-[NSProcessInfo processorCount]`, and more OpenGL ES and Core Graphics functions and parameters.
+- More accurate `-[UIFont leading]` (by abnormalmaps).
+- Apps that support portrait now start in portrait.
+- App icons listed with `CFBundleIcons`, as iOS 5 apps do, are shown in the app picker.
+- Various smaller fixes.
+
+Usability:
+
+- Return to the app picker with Esc on macOS and Windows, Back on Android, or by holding a controller's Back button. On iOS, there's an on-screen Home button beside the app. Apps are told they're quitting first.
+- The app picker pages by swiping instead of with arrow buttons, and highlights the icon you press.
+
+Other:
+
+- The iOS app requires iOS 16 or later.
+- The app's version is set only in `iphone/Config.xcconfig`, and `dev-scripts/prepare-release.sh` prepares a release.
+
 ## v1.2.23 (2026-09-29)
 
 Compatibility:
