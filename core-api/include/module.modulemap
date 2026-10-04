@@ -1,0 +1,14 @@
+// Module map exposing the multi-core C ABI to Swift.
+//
+// The shell deliberately does NOT re-declare these structs in Swift. Importing
+// the C header guarantees struct layout, enum width and calling convention come
+// from the compiler rather than from a hand-maintained copy that can silently
+// drift out of sync with the C side.
+//
+// Add this directory to the Xcode target's "Header Search Paths" and reference
+// the module from Swift with `import EmuCoreAPI`.
+
+module EmuCoreAPI {
+    header "emu_core.h"
+    export *
+}

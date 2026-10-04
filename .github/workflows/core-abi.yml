@@ -1,0 +1,119 @@
+name: Multi-core ABI
+
+# Verifies the multi-core ABI contract (core-api/include/emu_core.h) without
+# building any emulator. This is deliberately fast and independent of the IPA
+# build, because the ABI is the load-bearing piece: every core and the shell
+# depend on it, and it changes far less often than the emulators do.
+#
+# Runs on macOS because that is where the real iOS build happens. It compiles
+# for the host rather than for arm64-apple-ios because nothing here is
+# platform-specific; the arm64 device build is covered by build-ios-ipa.yml.
+
+on:
+  push:
+    branches: [ "idared32bit" ]
+    paths:
+      - 'core-api/**'
+      - 'shell/**'
+      - 'docs/MULTICORE.md'
+  pull_request:
+    branches: [ "idared32bit" ]
+    paths:
+      - 'core-api/**'
+      - 'shell/**'
+      - 'docs/MULTICORE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
+jobs:
+  abi-check:
+    name: ABI header and reference core
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain versions
+        run: |
+          clang --version
+          xcodebuild -version
+
+      # The header is consumed by C, C++ and Swift. A construct that is valid in
+      # one and not another would only surface later, inside a real core, as a
+      # confusing build failure. Catch it here instead.
+      - name: Header must compile standalone as C
+        run: |
+          set -euo pipefail
+          clang -std=c11 -Wall -Wextra -Werror \
+                -I core-api/include \
+                -x c core-api/include/emu_core.h -fsyntax-only
+          echo "C11 OK"
+
+      - name: Header must compile standalone as C++
+        run: |
+          set -euo pipefail
+          clang++ -std=c++17 -Wall -Wextra -Werror \
+                  -I core-api/include \
+                  -x c++ core-api/include/emu_core.h -fsyntax-only
+          echo "C++17 OK"
+
+      # Foreign-function-interface check: this is the actual property the Swift
+      # side depends on, namely that the C header can be consumed through a
+      # module map.
+      - name: Module map must resolve
+        run: |
+          set -euo pipefail
+          clang -fmodules -fsyntax-only \
+                -fmodule-map-file=core-api/include/module.modulemap \
+                -x c /dev/null
+          echo "module map OK"
+
+      - name: Build registry, reference core and smoke test
+        run: |
+          set -euo pipefail
+          mkdir -p build-abi
+          clang -std=c11 -Wall -Wextra -Werror -g \
+                -I core-api/include \
+                shell/emu_registry.c \
+                shell/cores/stub_core.c \
+                shell/tests/abi_smoke_test.c \
+                -o build-abi/abi_smoke_test
+          echo "link OK"
+
+      - name: Run ABI smoke test
+        run: ./build-abi/abi_smoke_test
+
+      # The emulators ship arm64-apple-ios slices, so the ABI has to be correct
+      # for that target too, not just the host. This only compiles; linking a
+      # real core is the IPA job's job.
+      - name: Cross-compile check for arm64-apple-ios
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          clang -target arm64-apple-ios15.0 \
+                -isysroot "$SDK" \
+                -std=c11 -Wall -Wextra -Werror -fsyntax-only \
+                -I core-api/include \
+                shell/emu_registry.c
+          clang -target arm64-apple-ios15.0 \
+                -isysroot "$SDK" \
+                -std=c11 -Wall -Wextra -Werror -fsyntax-only \
+                -I core-api/include \
+                shell/cores/stub_core.c
+          echo "arm64-apple-ios OK"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Multi-core ABI"
+            echo ""
+            echo "- Header: C11, C++17, module map, arm64-apple-ios syntax check"
+            echo "- Reference core: registers, creates, refuses work, destroys"
+            echo "- Smoke test: all checks passed"
+          } >> "$GITHUB_STEP_SUMMARY"
