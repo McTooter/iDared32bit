@@ -770,7 +770,7 @@ fn app_picker_inner(
         buttons_row2_center,
         &[
             ("Copyright info", "copyrightInfoShow"),
-            ("iDared 32bit Code", "visitWebsite"),
+            ("iDared 32bit Web", "visitWebsite"),
         ],
         None,
     );
