@@ -118,4 +118,6 @@ Next:
   4. Tag the commit you built, and push the tag:
        git tag -a v$VERSION -m "iDared 32bit $VERSION" -m "Source for iDared 32bit $VERSION. The App Store build ($VERSION, build 1) was built from this code." -m "Licensed under the Mozilla Public License 2.0."
        git push <remote> v$VERSION
+  5. Publish a GitHub release for the tag, using
+     dev-scripts/release-notes-template.md.
 EOF
