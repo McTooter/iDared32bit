@@ -26,11 +26,11 @@ These belong to touchHLE, not iDared 32bit. **Do not ask touchHLE for support wi
 
 The goal of this project is to run games from the early days of iOS:
 
-* Currently: iPhone and iPod touch apps for iPhone OS 2.x and iPhone OS 3.x.
-* Longer term: iOS 4.x, and beyond.
+* Currently: iPhone, iPod touch, and iPad apps for iPhone OS 2.x, iPhone OS 3.x and iOS 4.x.
+* Later: iOS 5.x and beyond.
 * [Never](https://github.com/touchHLE/touchHLE/issues/181#issuecomment-1777098259): 64-bit iOS.
 
-**This does not mean that all apps for these OS versions work.** The vast majority of iPhone OS 2.x and iPhone OS 3.x apps do not currently work in touchHLE or iDared 32bit, and the ones that do work are generally games (support for other apps isn't a priority: it's more complex and less fun). This improves gradually over time with contributions from various developers. touchHLE's app compatibility database tracks touchHLE only; it does not cover iDared 32bit. **We don't take requests, so please do not ask us to support your favourite game.**
+**This does not mean that all apps for these OS versions work.** The vast majority of iPhone OS 2.x, iPhone OS 3.x and iOS 4.x apps do not currently work in touchHLE or iDared 32bit, and the ones that do work are generally games (support for other apps isn't a priority: it's more complex and less fun). This improves gradually over time with contributions from various developers. touchHLE's app compatibility database tracks touchHLE only; it does not cover iDared 32bit. **We don't take requests, so please do not ask us to support your favourite game.**
 
 Because iDared 32bit uses a different CPU backend, SDL-based audio, iOS-specific changes, and additional maintainer changes that are not in upstream touchHLE, compatibility may differ from touchHLE. Some games that work in touchHLE may not work in iDared 32bit, and vice versa.
 
