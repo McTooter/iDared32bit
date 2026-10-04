@@ -197,8 +197,9 @@ typedef struct EmuHostApi {
     uint64_t (*now_ms)(void *userdata);
 
     /* Read a whole file into a caller-allocated buffer.
-     * Returns EMU_OK and sets *out_len/*out_data (caller frees via host_free),
-     * or EMU_ERR_IO. Host allocates so cores need no matching allocator. */
+     * Returns EMU_OK and sets out_data and out_len (caller frees via
+     * host_free), or EMU_ERR_IO. The host allocates, so cores need no
+     * matching allocator. */
     EmuStatus (*read_file)(void *userdata, const char *path,
                            uint8_t **out_data, size_t *out_len);
 
